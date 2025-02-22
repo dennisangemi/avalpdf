@@ -8,6 +8,14 @@ from pdfixsdk import *
 import ctypes
 from typing import Dict, List, Tuple
 
+# ANSI color codes
+COLOR_GREEN = '\033[32;1m'    # P tags (verde brillante)
+COLOR_RED = '\033[38;5;204m'  # Headings (rosa chiaro)
+COLOR_ORANGE = '\033[33;1m'   # Figures (arancione brillante)
+COLOR_PURPLE = '\033[35;1m'   # Tables (viola brillante)
+COLOR_BLUE = '\033[34;1m'     # Lists (blu brillante)
+COLOR_RESET = '\033[0m'       # Reset color
+
 def pdf_to_json(pdf_path):
     """Convert PDF to JSON using PDFix SDK"""
     pdfix = GetPdfix()
@@ -273,20 +281,20 @@ def print_formatted_content(element, level=0):
     indent = "  " * level
     
     if element.get('tag') == 'Figure':
-        print(f"{indent}[Figure] {element.get('text', '')}")
+        print(f"{indent}{COLOR_ORANGE}[Figure]{COLOR_RESET} {element.get('text', '')}")
         return
 
     if element.get('tag') == 'Table':
-        print(f"{indent}[Table]")
+        print(f"{indent}{COLOR_PURPLE}[Table]{COLOR_RESET}")
         
         # Print headers if present
         if element['content']['headers']:
-            print(f"{indent}  [Header]")
+            print(f"{indent}  {COLOR_PURPLE}[Header]{COLOR_RESET}")
             for header_row in element['content']['headers']:
                 row_text = []
                 for cell in header_row:
                     if isinstance(cell, dict):
-                        tag = f"[{cell['tag']}] " if 'tag' in cell else ""
+                        tag = f"{COLOR_GREEN}[{cell['tag']}]{COLOR_RESET} " if 'tag' in cell else ""
                         if 'children' in cell:
                             nested = [f"{child['text']}" for child in cell['children']]
                             row_text.append(f"{tag}{cell.get('text', '')} -> {' '.join(nested)}")
@@ -298,12 +306,12 @@ def print_formatted_content(element, level=0):
         
         # Print data rows
         if element['content']['rows']:
-            print(f"{indent}  [Data]")
+            print(f"{indent}  {COLOR_PURPLE}[Data]{COLOR_RESET}")
             for row in element['content']['rows']:
                 row_text = []
                 for cell in row:
                     if isinstance(cell, dict):
-                        tag = f"[{cell['tag']}] " if 'tag' in cell else ""
+                        tag = f"{COLOR_GREEN}[{cell['tag']}]{COLOR_RESET} " if 'tag' in cell else ""
                         if 'children' in cell:
                             nested = [f"{child['text']}" for child in cell['children']]
                             row_text.append(f"{tag}{cell.get('text', '')} -> {' '.join(nested)}")
@@ -315,7 +323,7 @@ def print_formatted_content(element, level=0):
         return
 
     if element.get('tag') == 'L':
-        list_type = "[ORDERED LIST]" if element.get('ordered', False) else "[UNORDERED LIST]"
+        list_type = f"{COLOR_BLUE}[ORDERED LIST]{COLOR_RESET}" if element.get('ordered', False) else f"{COLOR_BLUE}[UNORDERED LIST]{COLOR_RESET}"
         print(f"{indent}{list_type}")
         if element.get('items'):
             if element.get('ordered', False):
@@ -330,7 +338,14 @@ def print_formatted_content(element, level=0):
         return
 
     # Gestione standard per altri tag
-    tag_str = f"[{element['tag']}]"
+    tag = element['tag']
+    if tag == 'P':
+        tag_str = f"{COLOR_GREEN}[{tag}]{COLOR_RESET}"
+    elif tag.startswith('H'):
+        tag_str = f"{COLOR_RED}[{tag}]{COLOR_RESET}"
+    else:
+        tag_str = f"[{tag}]"
+        
     text = element.get('text', '')
     children = element.get('children', [])
     
@@ -343,7 +358,7 @@ def print_formatted_content(element, level=0):
                 else:
                     child_texts.append(f"[LINK] {child.get('text')}")
             elif child.get('tag') == 'Figure':
-                child_texts.append(f"[IMAGE] {child.get('text', '')}")
+                child_texts.append(f"{COLOR_ORANGE}[IMAGE]{COLOR_RESET} {child.get('text', '')}")
             elif child.get('tag') == 'Span':
                 child_texts.append(f"[SPAN] {child.get('text', '')}")
             else:
@@ -771,6 +786,12 @@ def analyze_pdf(pdf_path: str, options: dict) -> None:
         # Show document structure if requested
         if options['show_structure']:
             print("\n📄 Document Structure:")
+            print("Note: Colors are used to highlight different tag types and do not indicate errors:")
+            print(f"  {COLOR_GREEN}[P]{COLOR_RESET}: Paragraphs")
+            print(f"  {COLOR_RED}[H1-H6]{COLOR_RESET}: Headings")
+            print(f"  {COLOR_ORANGE}[Figure]{COLOR_RESET}: Images")
+            print(f"  {COLOR_PURPLE}[Table]{COLOR_RESET}: Tables")
+            print(f"  {COLOR_BLUE}[List]{COLOR_RESET}: Lists")
             print("-" * 40)
             for element in simplified_json.get('content', []):
                 print_formatted_content(element)
