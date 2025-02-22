@@ -26,12 +26,12 @@ A command-line tool for validating PDF accessibility, analyzing document structu
 
 1. Install PDFix SDK:
 ```bash
-pip install pdfixsdk
+pip install pdfix-sdk
 ```
 
 2. Download and install avalpdf:
 ```bash
-wget https://raw.githubusercontent.com/dennisangemi/avalpdf/main/avalpdf -O - | sudo tee /usr/local/bin/avalpdf > /dev/null && sudo chmod +x /usr/local/bin/avalpdf
+sudo sh -c 'wget https://raw.githubusercontent.com/dennisangemi/avalpdf/main/avalpdf -O /usr/local/bin/avalpdf && chmod +x /usr/local/bin/avalpdf'
 ```
 
 ## Usage
