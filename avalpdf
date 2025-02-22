@@ -1,0 +1,822 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+from pathlib import Path
+import sys
+from pdfixsdk import *
+import ctypes
+from typing import Dict, List, Tuple
+
+def pdf_to_json(pdf_path):
+    """Convert PDF to JSON using PDFix SDK"""
+    pdfix = GetPdfix()
+    doc = pdfix.OpenDoc(pdf_path, "")
+    
+    if doc is None:
+        raise Exception("Failed to open PDF document")
+    
+    # Prepare PDF to JSON conversion params
+    params = PdfJsonParams()
+    params.flags = (kJsonExportStructTree | kJsonExportDocInfo | kJsonExportText)
+    
+    # Convert to JSON
+    json_conv = doc.CreateJsonConversion()
+    json_conv.SetParams(params)
+    
+    # Extract data to stream
+    mem_stm = pdfix.CreateMemStream()
+    json_conv.SaveToStream(mem_stm)
+    
+    # Read memory stream into bytearray
+    sz = mem_stm.GetSize()
+    data = bytearray(sz)
+    raw_data = (ctypes.c_ubyte * sz).from_buffer(data)
+    mem_stm.Read(0, raw_data, len(raw_data))
+    
+    # Cleanup
+    mem_stm.Destroy()
+    doc.Close()
+    
+    return json.loads(data.decode("utf-8"))
+
+def extract_content(element, level=0):
+    results = []
+    
+    # Skip if element is not a dictionary
+    if not isinstance(element, dict):
+        return results
+        
+    tag_type = element.get('S', '')
+    
+    try:
+        # Gestione speciale per tag Part
+        if tag_type == 'Part':
+            if 'K' in element and isinstance(element.get('K'), list):
+                for child in element.get('K', []):
+                    if isinstance(child, dict):
+                        nested_results = extract_content(child, level)
+                        results.extend(nested_results)
+            return results
+            
+        if tag_type and tag_type != 'Document':
+            content = []
+            child_elements = []
+            
+            # Crea l'elemento base solo con il tag
+            element_dict = {"tag": tag_type}
+            
+            if tag_type == 'Figure':
+                alt_text = element.get('Alt', '')
+                element_dict["text"] = alt_text if alt_text else ""
+                results.append(element_dict)
+                return results
+                
+            elif tag_type == 'Table':
+                table_content = {
+                    'headers': [],
+                    'rows': []
+                }
+                if 'K' in element:
+                    for row in element['K']:
+                        if row.get('S') == 'TR':
+                            header_row = []
+                            data_row = []
+                            for cell in row.get('K', []):
+                                cell_type = cell.get('S', '')
+                                cell_content = []
+                                
+                                # Process cell content
+                                for cell_content_elem in cell.get('K', []):
+                                    nested_results = extract_content(cell_content_elem)
+                                    cell_content.extend(nested_results)
+                                
+                                # Usa il primo elemento trovato come valore della cella
+                                if cell_content:
+                                    if isinstance(cell_content[0], dict):
+                                        cell_value = cell_content[0]
+                                    else:
+                                        cell_value = ' '.join(str(item) for item in cell_content).strip()
+                                else:
+                                    # Crea una cella vuota ma mantieni l'informazione del tag
+                                    cell_value = {
+                                        "tag": "P",  # Di solito le celle hanno un P come contenitore
+                                        "text": ""
+                                    }
+                                
+                                # Distinguish between header and data cells
+                                if cell_type == 'TH':
+                                    header_row.append(cell_value)
+                                elif cell_type == 'TD':
+                                    data_row.append(cell_value)
+                            
+                            # Add row to appropriate section
+                            if header_row:
+                                table_content['headers'].append(header_row)
+                            if data_row:
+                                table_content['rows'].append(data_row)
+                
+                results.append({
+                    "tag": "Table",
+                    "content": table_content
+                })
+            
+            elif tag_type == 'L':
+                list_items = []
+                is_ordered = False
+                
+                if 'K' in element:
+                    # Controlla il primo item per determinare se la lista è ordinata
+                    for item in element.get('K', []):
+                        if item.get('S') == 'LI':
+                            for child in item.get('K', []):
+                                if child.get('S') == 'Lbl':
+                                    for content in child.get('K', []):
+                                        if isinstance(content, dict) and 'Content' in content:
+                                            for text_item in content['Content']:
+                                                if text_item.get('Type') == 'Text':
+                                                    lbl_text = text_item.get('Text', '').strip()
+                                                    if lbl_text.replace('.', '').isdigit():
+                                                        is_ordered = True
+                                                    break
+                            break
+
+                    # Estrai il testo degli elementi
+                    for item in element.get('K', []):
+                        item_text = extract_list_item_text(item)
+                        if item_text:
+                            list_items.append(item_text)
+                
+                if list_items:
+                    results.append({
+                        "tag": "L",
+                        "ordered": is_ordered,
+                        "items": list_items
+                    })
+            
+            else:
+                # Process children first to collect nested elements
+                if 'K' in element:
+                    for child in element.get('K', []):
+                        if not isinstance(child, dict):
+                            continue
+                            
+                        if 'Content' in child:
+                            try:
+                                for content_item in child.get('Content', []):
+                                    if content_item.get('Type') == 'Text':
+                                        text = content_item.get('Text', '').strip()
+                                        if text:
+                                            content.append(text)
+                            except (KeyError, AttributeError):
+                                continue
+                        else:
+                            nested_results = extract_content(child, level + 1)
+                            child_elements.extend(nested_results)
+                
+                # Create element with text and children
+                text = ' '.join(content).strip()
+                
+                # Aggiungi gli attributi solo se esistono
+                if text:
+                    element_dict["text"] = text
+                if child_elements:
+                    element_dict["children"] = child_elements
+                    
+                # Aggiungi text vuoto SOLO se non ci sono né text né children popolati
+                if not text and not child_elements:
+                    element_dict["text"] = ""
+                
+                # Aggiungi l'elemento
+                results.append(element_dict)
+        
+        # Process siblings for Document tag
+        elif 'K' in element and isinstance(element.get('K'), list):
+            for child in element.get('K', []):
+                if isinstance(child, dict):  # Verifica esplicita che child sia un dict
+                    nested_results = extract_content(child, level + 1)
+                    results.extend(nested_results)
+                    
+    except Exception as e:
+        print(f"Warning: Error processing element: {str(e)}", file=sys.stderr)
+        
+    return results
+
+def create_simplified_json(pdf_json, results):
+    """Create simplified JSON including metadata from full JSON"""
+    metadata_fields = [
+        "creation_date", "mod_date", "author", "title", "subject",
+        "keywords", "producer", "creator", "standard", "lang",
+        "num_pages", "tagged"
+    ]
+    
+    simplified = {
+        "metadata": {
+            field: pdf_json.get(field, "") for field in metadata_fields
+        },
+        "content": results
+    }
+    return simplified
+
+def print_formatted_content(element, level=0):
+    """Stampa il contenuto in modo leggibile con indentazione"""
+    indent = "  " * level
+    
+    if element.get('tag') == 'Figure':
+        print(f"{indent}[Figure] {element.get('text', '')}")
+        return
+
+    if element.get('tag') == 'Table':
+        print(f"{indent}[Table]")
+        
+        # Print headers if present
+        if element['content']['headers']:
+            print(f"{indent}  [Header]")
+            for header_row in element['content']['headers']:
+                row_text = []
+                for cell in header_row:
+                    if isinstance(cell, dict):
+                        tag = f"[{cell['tag']}] " if 'tag' in cell else ""
+                        if 'children' in cell:
+                            nested = [f"{child['text']}" for child in cell['children']]
+                            row_text.append(f"{tag}{cell.get('text', '')} -> {' '.join(nested)}")
+                        else:
+                            row_text.append(f"{tag}{cell.get('text', '')}")
+                    else:
+                        row_text.append(str(cell))
+                print(f"{indent}    {' | '.join(row_text)}")
+        
+        # Print data rows
+        if element['content']['rows']:
+            print(f"{indent}  [Data]")
+            for row in element['content']['rows']:
+                row_text = []
+                for cell in row:
+                    if isinstance(cell, dict):
+                        tag = f"[{cell['tag']}] " if 'tag' in cell else ""
+                        if 'children' in cell:
+                            nested = [f"{child['text']}" for child in cell['children']]
+                            row_text.append(f"{tag}{cell.get('text', '')} -> {' '.join(nested)}")
+                        else:
+                            row_text.append(f"{tag}{cell.get('text', '')}")
+                    else:
+                        row_text.append(str(cell))
+                print(f"{indent}    {' | '.join(row_text)}")
+        return
+
+    if element.get('tag') == 'L':
+        list_type = "[ORDERED LIST]" if element.get('ordered', False) else "[UNORDERED LIST]"
+        print(f"{indent}{list_type}")
+        if element.get('items'):
+            if element.get('ordered', False):
+                for i, item in enumerate(element.get('items'), 1):
+                    if not item.startswith(str(i)):
+                        print(f"{indent}  {i}. {item}")
+                    else:
+                        print(f"{indent}  {item}")
+            else:
+                for item in element.get('items'):
+                    print(f"{indent}  {item}")
+        return
+
+    # Gestione standard per altri tag
+    tag_str = f"[{element['tag']}]"
+    text = element.get('text', '')
+    children = element.get('children', [])
+    
+    if children:
+        child_texts = []
+        for child in children:
+            if child.get('tag') == 'Link':
+                if 'url' in child:
+                    child_texts.append(f"[LINK][{child.get('url')}]: {child.get('text')}")
+                else:
+                    child_texts.append(f"[LINK] {child.get('text')}")
+            elif child.get('tag') == 'Figure':
+                child_texts.append(f"[IMAGE] {child.get('text', '')}")
+            elif child.get('tag') == 'Span':
+                child_texts.append(f"[SPAN] {child.get('text', '')}")
+            else:
+                child_texts.append(child.get('text', ''))
+        
+        # Stampa con indentazione quando c'è sia testo che figure
+        has_figures = any(child.get('tag') == 'Figure' for child in children)
+        if has_figures and text:
+            print(f"{indent}{tag_str} {text}")
+            print(f"{indent}  -> {', '.join(child_texts)}")
+        else:
+            if text:
+                print(f"{indent}{tag_str} {text} -> {', '.join(child_texts)}")
+            else:
+                print(f"{indent}{tag_str} -> {', '.join(child_texts)}")
+    else:
+        print(f"{indent}{tag_str} {text}")
+
+
+class AccessibilityValidator:
+    def __init__(self):
+        self.issues = []
+        self.warnings = []
+        self.successes = []
+        self.is_tagged = False
+        
+    def validate_metadata(self, metadata: Dict) -> None:
+        # Check tagged status first
+        tagged = metadata.get('tagged')
+        if not tagged or tagged.lower() != 'true':
+            self.issues.append("Document is not tagged")
+            self.is_tagged = False
+        else:
+            self.successes.append("Document is properly tagged")
+            self.is_tagged = True
+            
+        # Check title
+        if not metadata.get('title'):
+            self.issues.append("Title is missing or empty")
+        else:
+            self.successes.append("Document has a title")
+            
+        # Check language
+        lang = metadata.get('lang', '').lower()
+        if not lang.startswith('it'):
+            self.issues.append(f"Document language is not Italian (found: {lang})")
+        else:
+            self.successes.append("Document language is Italian")
+
+    def validate_empty_elements(self, content: List) -> None:
+        if not self.is_tagged:
+            return
+            
+        empty_elements = []
+        empty_table_cells = []
+        completely_empty_tables = []
+        table_count = 0  # Contatore per numerare le tabelle
+        
+        def check_element(element: Dict, path: str = "") -> None:
+            tag = element.get('tag', '')
+            text = element.get('text', '')
+            children = element.get('children', [])
+            
+            current_path = f"{path}/{tag}" if path else tag
+            
+            nonlocal table_count
+            
+            # Special handling for Table elements
+            if tag == 'Table':
+                table_count += 1
+                table_content = element.get('content', {})
+                headers = table_content.get('headers', [])
+                rows = table_content.get('rows', [])
+                
+                # Check if table is completely empty
+                if not headers and not rows:
+                    completely_empty_tables.append(f"Table {table_count}")
+                    return
+                
+                # Check for empty cells in headers
+                for i, header_row in enumerate(headers):
+                    for j, cell in enumerate(header_row):
+                        if isinstance(cell, dict):
+                            cell_text = cell.get('text', '').strip()
+                        else:
+                            cell_text = str(cell).strip()
+                        if not cell_text:
+                            empty_table_cells.append(f"Table {table_count}/header[{i}][{j}]")
+                
+                # Check for empty cells in rows
+                for i, row in enumerate(rows):
+                    for j, cell in enumerate(row):
+                        if isinstance(cell, dict):
+                            cell_text = cell.get('text', '').strip()
+                        else:
+                            cell_text = str(cell).strip()
+                        if not cell_text:
+                            empty_table_cells.append(f"Table {table_count}/row[{i}][{j}]")
+                
+                return  # Skip further checks for tables
+            
+            # Special handling for List elements
+            if tag == 'L':
+                items = element.get('items', [])
+                if not items:
+                    empty_elements.append(current_path)
+                return  # Skip further checks for lists
+            
+            # Check if element is empty (no text and no children)
+            if not text and not children:
+                empty_elements.append(current_path)
+            
+            # Recursively check children
+            for child in children:
+                check_element(child, current_path)
+        
+        for element in content:
+            check_element(element)
+        
+        # Report issues
+        if completely_empty_tables:
+            self.issues.append(f"Found {len(completely_empty_tables)} completely empty tables: {', '.join(completely_empty_tables)}")
+        
+        if empty_table_cells:
+            self.warnings.append(f"Found {len(empty_table_cells)} empty cells in tables: {', '.join(empty_table_cells)}")
+            
+        if empty_elements:
+            self.warnings.append(f"Found {len(empty_elements)} empty elements: {', '.join(empty_elements)}")
+            
+        if not (empty_elements or empty_table_cells or completely_empty_tables):
+            self.successes.append("No empty elements found in tagged content")
+
+    def validate_figures(self, content: List) -> None:
+        # Skip if document is not tagged
+        if not self.is_tagged:
+            return
+            
+        figures = []
+        figures_without_alt = []
+        
+        def check_figures(element: Dict, path: str = "") -> None:
+            tag = element.get('tag', '')
+            current_path = f"{path}/{tag}" if path else tag
+            
+            if tag == 'Figure':
+                figures.append(current_path)
+                alt_text = element.get('text', '').strip()
+                if not alt_text:
+                    figures_without_alt.append(current_path)
+            
+            # Check children
+            for child in element.get('children', []):
+                check_figures(child, current_path)
+        
+        for element in content:
+            check_figures(element)
+        
+        if figures:
+            if figures_without_alt:
+                self.issues.append(f"Found {len(figures_without_alt)} figures without alt text: {', '.join(figures_without_alt)}")
+            else:
+                count = len(figures)
+                self.successes.append(f"Found {count} figure{'' if count == 1 else 's'} with alternative text")
+
+    def validate_heading_structure(self, content: List) -> None:
+        # Skip if document is not tagged
+        if not self.is_tagged:
+            return
+            
+        headings = []
+        
+        def collect_headings(element: Dict) -> None:
+            tag = element.get('tag', '')
+            if tag.startswith('H'):
+                try:
+                    level = int(tag[1:])
+                    headings.append(level)
+                except ValueError:
+                    pass
+            
+            for child in element.get('children', []):
+                collect_headings(child)
+        
+        for element in content:
+            collect_headings(element)
+        
+        if headings:
+            # Check if first heading is H1
+            if headings[0] != 1:
+                self.issues.append(f"First heading is H{headings[0]}, should be H1")
+            
+            # Check heading hierarchy
+            prev_level = 1
+            for level in headings:
+                if level > prev_level + 1:
+                    self.issues.append(f"Incorrect heading structure: H{prev_level} followed by H{level}")
+                prev_level = level
+            
+            if not any(self.issues):
+                count = len(headings)
+                self.successes.append(f"Found {count} heading{'' if count == 1 else 's'} with correct structure")
+        else:
+            self.warnings.append("No headings found in document")
+
+    def validate_tables(self, content: List) -> None:
+        if not self.is_tagged:
+            return
+            
+        tables = []
+        tables_without_headers = []
+        empty_tables = []
+        tables_with_duplicate_headers = []
+        tables_with_proper_headers = []
+        tables_with_multiple_header_rows = []
+        tables_without_data = []
+        
+        def is_table_completely_empty(headers, rows) -> bool:
+            # Check if all headers are empty
+            all_headers_empty = all(
+                not (isinstance(cell, dict) and cell.get('text', '').strip() or
+                     isinstance(cell, str) and cell.strip())
+                for row in headers
+                for cell in row
+            )
+            
+            # Check if all rows are empty
+            all_rows_empty = all(
+                not (isinstance(cell, dict) and cell.get('text', '').strip() or
+                     isinstance(cell, str) and cell.strip())
+                for row in rows
+                for cell in row
+            )
+            
+            return all_headers_empty and all_rows_empty
+        
+        def has_duplicate_headers(headers) -> tuple[bool, list]:
+            if not headers:
+                return False, []
+            
+            header_texts = []
+            duplicates = []
+            
+            for row in headers:
+                row_texts = []
+                for cell in row:
+                    if isinstance(cell, dict):
+                        text = cell.get('text', '').strip()
+                    else:
+                        text = str(cell).strip()
+                    if text in row_texts:
+                        duplicates.append(text)
+                    row_texts.append(text)
+                header_texts.extend(row_texts)
+            
+            return bool(duplicates), duplicates
+        
+        def check_tables(element: Dict, path: str = "") -> None:
+            tag = element.get('tag', '')
+            
+            if tag == 'Table':
+                table_num = len(tables) + 1
+                table_content = element.get('content', {})
+                headers = table_content.get('headers', [])
+                rows = table_content.get('rows', [])
+                
+                # First check if table is structurally empty
+                if not headers and not rows:
+                    empty_tables.append(f"Table {table_num}")
+                    return
+                # Then check if table has structure but all cells are empty
+                elif is_table_completely_empty(headers, rows):
+                    empty_tables.append(f"Table {table_num}")
+                else:
+                    tables.append(f"Table {table_num}")
+                    
+                    # Check if table has headers
+                    if not headers:
+                        tables_without_headers.append(f"Table {table_num}")
+                    else:
+                        # Check number of header rows
+                        if len(headers) > 1:
+                            tables_with_multiple_header_rows.append((f"Table {table_num}", len(headers)))
+                        
+                        # Check for duplicate headers
+                        has_duplicates, duplicate_values = has_duplicate_headers(headers)
+                        if has_duplicates:
+                            tables_with_duplicate_headers.append((f"Table {table_num}", duplicate_values))
+                        else:
+                            tables_with_proper_headers.append(f"Table {table_num}")
+                    
+                    # Check if table has data rows
+                    if not rows:
+                        tables_without_data.append(f"Table {table_num}")
+            
+            # Check children
+            for child in element.get('children', []):
+                check_tables(child)
+        
+        for element in content:
+            check_tables(element)
+        
+        # Report issues and warnings
+        if empty_tables:
+            self.issues.append(f"Found empty tables: {', '.join(empty_tables)}")
+        
+        if tables:  # Solo se ci sono tabelle non vuote
+            # Issues per tabelle senza header o senza dati
+            if tables_without_headers:
+                self.issues.append(f"Found tables without headers: {', '.join(tables_without_headers)}")
+            if tables_without_data:
+                self.issues.append(f"Found tables without data rows: {', '.join(tables_without_data)}")
+            
+            # Warning per tabelle con più righe di intestazione
+            for table_id, num_rows in tables_with_multiple_header_rows:
+                self.warnings.append(f"{table_id} has {num_rows} header rows, consider using a single header row")
+            
+            # Report successo per ogni tabella corretta individualmente
+            for table_id in tables_with_proper_headers:
+                if (not any(table_id == t[0] for t in tables_with_multiple_header_rows) and
+                    table_id not in tables_without_data):
+                    self.successes.append(f"{table_id} has proper header tags")
+                
+            # Warning per contenuti duplicati
+            if tables_with_duplicate_headers:
+                for table_id, duplicates in tables_with_duplicate_headers:
+                    self.warnings.append(f"{table_id} has duplicate headers: {', '.join(duplicates)}")
+
+    def generate_json_report(self) -> Dict:
+        return {
+            "validation_results": {
+                "issues": self.issues,
+                "warnings": self.warnings,
+                "successes": self.successes
+            }
+        }
+
+    def print_console_report(self) -> None:
+        print("\n📖 Accessibility Validation Report\n")
+        
+        if self.successes:
+            print("✅ Successes:")
+            for success in self.successes:
+                print(f"  • {success}")
+        
+        if self.warnings:
+            print("\n⚠️  Warnings:")
+            for warning in self.warnings:
+                print(f"  • {warning}")
+        
+        if self.issues:
+            print("\n❌ Issues:")
+            for issue in self.issues:
+                print(f"  • {issue}")
+        
+        # Print summary
+        total = len(self.successes) + len(self.warnings) + len(self.issues)
+        print(f"\n📊 Summary:")
+        print(f"  • Total checks: {total}")
+        print(f"  • Successes: {len(self.successes)} ✅")
+        print(f"  • Warnings: {len(self.warnings)} ⚠️")
+        print(f"  • Issues: {len(self.issues)} ❌")
+        
+        # Overall assessment
+        if not self.issues:
+            if not self.warnings:
+                print("\n🎉 Perfect! No accessibility issues found!")
+            else:
+                print("\n👍 Good! No major issues, but some warnings to consider.")
+        else:
+            print("\n🔧 Some accessibility issues need to be addressed.")
+
+def analyze_pdf(pdf_path: str, options: dict) -> None:
+    """
+    Analyze a PDF file with configurable outputs
+    
+    options = {
+        'output_dir': Path or None,
+        'save_full': bool,
+        'save_simple': bool,
+        'save_report': bool,
+        'show_structure': bool,
+        'show_validation': bool,
+        'quiet': bool
+    }
+    """
+    try:
+        # Setup output directory
+        output_dir = Path(options['output_dir']) if options['output_dir'] else Path(pdf_path).parent
+        output_dir.mkdir(parents=True, exist_ok=True)
+        pdf_name = Path(pdf_path).stem
+
+        if not options['quiet']:
+            print("🔄 Converting PDF to JSON structure...", file=sys.stderr)
+        
+        # Convert PDF to JSON
+        pdf_json = pdf_to_json(pdf_path)
+        
+        # Extract and simplify content
+        if 'StructTreeRoot' not in pdf_json:
+            if not options['quiet']:
+                print("⚠️  Warning: No structure tree found in PDF", file=sys.stderr)
+            results = []
+        else:
+            results = extract_content(pdf_json['StructTreeRoot'])
+        
+        # Create simplified JSON
+        simplified_json = create_simplified_json(pdf_json, results)
+        
+        # Save full JSON if requested
+        if options['save_full']:
+            full_path = output_dir / f"{pdf_name}_full.json"
+            with open(full_path, 'w', encoding='utf-8') as f:
+                json.dump(pdf_json, f, indent=2, ensure_ascii=False)
+            if not options['quiet']:
+                print(f"💾 Full JSON saved to: {full_path}")
+
+        # Save simplified JSON if requested
+        if options['save_simple']:
+            simplified_path = output_dir / f"{pdf_name}_simplified.json"
+            with open(simplified_path, 'w', encoding='utf-8') as f:
+                json.dump(simplified_json, f, indent=2, ensure_ascii=False)
+            if not options['quiet']:
+                print(f"💾 Simplified JSON saved to: {simplified_path}")
+
+        # Show document structure if requested
+        if options['show_structure']:
+            print("\n📄 Document Structure:")
+            print("-" * 40)
+            for element in simplified_json.get('content', []):
+                print_formatted_content(element)
+            print("-" * 40)
+
+        # Run validation if requested
+        if options['save_report'] or options['show_validation']:
+            if not options['quiet']:
+                print("\n🔍 Running accessibility validation...")
+            
+            validator = AccessibilityValidator()
+            validator.validate_metadata(simplified_json.get('metadata', {}))
+            validator.validate_empty_elements(simplified_json.get('content', []))
+            validator.validate_figures(simplified_json.get('content', []))
+            validator.validate_heading_structure(simplified_json.get('content', []))
+            validator.validate_tables(simplified_json.get('content', []))  # Add table validation
+            
+            # Show validation results if requested
+            if options['show_validation']:
+                validator.print_console_report()
+            
+            # Save validation report if requested
+            if options['save_report']:
+                report_path = output_dir / f"{pdf_name}_validation_report.json"
+                with open(report_path, 'w', encoding='utf-8') as f:
+                    json.dump(validator.generate_json_report(), f, indent=2)
+                if not options['quiet']:
+                    print(f"\n💾 Validation report saved to: {report_path}")
+        
+        if not options['quiet']:
+            print("\n✨ Analysis complete!")
+            
+    except Exception as e:
+        print(f"❌ Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='PDF Analysis Tool: Convert to JSON and validate accessibility',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  Save all outputs and show all console information
+  ./analyze_pdf.py document.pdf --full --simple --report --show-all
+  
+  Only show validation results in console
+  ./analyze_pdf.py document.pdf --show-validation
+  
+  Save simplified JSON and show document structure
+  ./analyze_pdf.py document.pdf --simple --show-structure
+  
+  Save all files without console output
+  ./analyze_pdf.py document.pdf --full --simple --report --quiet
+"""
+    )
+    
+    parser.add_argument('input', help='Input PDF file')
+    parser.add_argument('--output-dir', '-o', help='Output directory for JSON files')
+    
+    # File output options
+    parser.add_argument('--full', action='store_true', help='Save full JSON output')
+    parser.add_argument('--simple', action='store_true', help='Save simplified JSON output')
+    parser.add_argument('--report', action='store_true', help='Save validation report')
+    
+    # Display options
+    parser.add_argument('--show-structure', action='store_true', help='Show document structure in console')
+    parser.add_argument('--show-validation', action='store_true', help='Show validation results in console')
+    parser.add_argument('--show-all', action='store_true', help='Show both structure and validation in console')
+    parser.add_argument('--quiet', '-q', action='store_true', help='Suppress all console output except errors')
+    
+    args = parser.parse_args()
+    
+    # Input validation
+    input_path = Path(args.input)
+    if not input_path.is_file():
+        print(f"❌ Error: Input file '{args.input}' does not exist", file=sys.stderr)
+        sys.exit(1)
+    
+    # If no output options specified, show help
+    if not any([args.full, args.simple, args.report, 
+                args.show_structure, args.show_validation, args.show_all]):
+        parser.print_help()
+        sys.exit(1)
+    
+    # Prepare options dictionary
+    options = {
+        'output_dir': args.output_dir,
+        'save_full': args.full,
+        'save_simple': args.simple,
+        'save_report': args.report,
+        'show_structure': args.show_structure or args.show_all,
+        'show_validation': args.show_validation or args.show_all,
+        'quiet': args.quiet
+    }
+    
+    analyze_pdf(str(input_path), options)
+
+if __name__ == "__main__":
+    main()
