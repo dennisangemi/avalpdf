@@ -813,14 +813,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  Save all outputs and show all console information
-  ./analyze_pdf.py document.pdf --full --simple --report --show-all
+  Basic usage (shows full analysis by default)
+  ./analyze_pdf.py document.pdf
   
-  Only show validation results in console
-  ./analyze_pdf.py document.pdf --show-validation
-  
-  Save simplified JSON and show document structure
-  ./analyze_pdf.py document.pdf --simple --show-structure
+  Save reports to specific directory
+  ./analyze_pdf.py document.pdf -o /path/to/output --report --simple
   
   Save all files without console output
   ./analyze_pdf.py document.pdf --full --simple --report --quiet
@@ -838,7 +835,6 @@ Examples:
     # Display options
     parser.add_argument('--show-structure', action='store_true', help='Show document structure in console')
     parser.add_argument('--show-validation', action='store_true', help='Show validation results in console')
-    parser.add_argument('--show-all', action='store_true', help='Show both structure and validation in console')
     parser.add_argument('--quiet', '-q', action='store_true', help='Suppress all console output except errors')
     
     args = parser.parse_args()
@@ -849,11 +845,12 @@ Examples:
         print(f"❌ Error: Input file '{args.input}' does not exist", file=sys.stderr)
         sys.exit(1)
     
-    # If no output options specified, show help
-    if not any([args.full, args.simple, args.report, 
-                args.show_structure, args.show_validation, args.show_all]):
-        parser.print_help()
-        sys.exit(1)
+    # If no display options specified, enable both structure and validation display
+    show_structure = args.show_structure
+    show_validation = args.show_validation
+    if not any([args.show_structure, args.show_validation, args.quiet]):
+        show_structure = True
+        show_validation = True
     
     # Prepare options dictionary
     options = {
@@ -861,8 +858,8 @@ Examples:
         'save_full': args.full,
         'save_simple': args.simple,
         'save_report': args.report,
-        'show_structure': args.show_structure or args.show_all,
-        'show_validation': args.show_validation or args.show_all,
+        'show_structure': show_structure,
+        'show_validation': show_validation,
         'quiet': args.quiet
     }
     

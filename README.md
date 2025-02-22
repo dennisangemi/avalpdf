@@ -39,10 +39,10 @@ After installation, you can run avalpdf from any directory:
 
 ```sh
 # Basic validation with console output
-avalpdf document.pdf --show-validation
+avalpdf document.pdf
 
 # Complete analysis with all outputs
-avalpdf document.pdf --full --simple --report --show-all
+avalpdf document.pdf --full --simple --report
 
 # Save reports to specific directory
 avalpdf document.pdf -o /path/to/output --report --simple
@@ -64,7 +64,7 @@ Command Line Options
 Examples
 1. Quick accessibility check:
 ```sh
-avalpdf thesis.pdf --show-validation
+avalpdf thesis.pdf
 ```
 
 2. Generate all reports:
