@@ -202,6 +202,56 @@ def extract_content(element, level=0):
         
     return results
 
+def extract_list_item_text(item):
+    """Helper function to extract text from list items safely"""
+    try:
+        if item.get('S') != 'LI':
+            return None
+
+        bullet = ""
+        text = ""
+        
+        # Estrai prima il bullet point/numero
+        for child in item.get('K', []):
+            if child.get('S') == 'Lbl':
+                for content in child.get('K', []):
+                    if isinstance(content, dict) and 'Content' in content:
+                        for text_item in content['Content']:
+                            if text_item.get('Type') == 'Text':
+                                bullet = text_item.get('Text', '').strip()
+            
+            # Estrai il contenuto del LBody
+            if child.get('S') == 'LBody':
+                # Processiamo ogni elemento P dentro LBody
+                for p in child.get('K', []):
+                    if isinstance(p, dict) and p.get('S') == 'P':
+                        for k in p.get('K', []):
+                            if isinstance(k, dict):
+                                # Estrai il testo direttamente se presente
+                                if 'Content' in k:
+                                    for content_item in k['Content']:
+                                        if content_item.get('Type') == 'Text':
+                                            text += content_item.get('Text', '').strip() + " "
+                                # Gestisci elementi Span o altri contenitori
+                                elif k.get('S') in ['Span', 'Link']:
+                                    for span_content in k.get('K', []):
+                                        if isinstance(span_content, dict) and 'Content' in span_content:
+                                            for content_item in span_content['Content']:
+                                                if content_item.get('Type') == 'Text':
+                                                    text += content_item.get('Text', '').strip() + " "
+
+        # Combina bullet e testo
+        text = text.strip()
+        if bullet or text:
+            if bullet and text:
+                return f"{bullet} {text}"
+            return bullet if bullet else text
+                
+    except Exception as e:
+        print(f"Warning: Error extracting list item text: {str(e)}", file=sys.stderr)
+        
+    return None
+
 def create_simplified_json(pdf_json, results):
     """Create simplified JSON including metadata from full JSON"""
     metadata_fields = [
