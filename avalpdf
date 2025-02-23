@@ -889,19 +889,58 @@ class AccessibilityValidator:
             check_list_items(element)
 
     def validate_excessive_underscores(self, content: List) -> None:
-        """Check for excessive consecutive underscores that might be used for underlining"""
-        def check_underscores(text: str) -> bool:
-            return '_' * 5 in text  # Considera eccessivi 5 o più underscore consecutivi
+        """Check recursively for excessive consecutive underscores that might be used for underlining"""
+        def check_underscores(text: str) -> tuple[bool, int]:
+            """Returns (has_excessive_underscores, count)"""
+            import re
+            # Cerca sequenze di 4 o più underscore
+            pattern = r'_{4,}'
+            match = re.search(pattern, text)
+            if match:
+                return True, len(match.group(0))
+            return False, 0
             
-        def check_element(element: Dict) -> None:
-            if element.get('tag') == 'P':
+        def check_element(element: Dict, path: str = "") -> None:
+            current_path = f"{path}/{element['tag']}" if path else element['tag']
+            
+            # Controlla il testo dell'elemento corrente
+            if 'text' in element:
                 text = element.get('text', '')
-                if check_underscores(text):
-                    self.warnings.append(f"Found excessive underscores that might be used for underlining: '{text}'")
+                has_underscores, count = check_underscores(text)
+                if has_underscores:
+                    self.warnings.append(f"Found {count} consecutive underscores in {current_path} - might be attempting to create underlining")
             
-            # Check children recursively
+            # Controlla i figli
             for child in element.get('children', []):
-                check_element(child)
+                check_element(child, current_path)
+            
+            # Per le tabelle, controlla le celle
+            if element.get('tag') == 'Table':
+                table_content = element.get('content', {})
+                # Controlla headers
+                for i, row in enumerate(table_content.get('headers', [])):
+                    for j, cell in enumerate(row):
+                        if isinstance(cell, dict):
+                            text = cell.get('text', '')
+                            has_underscores, count = check_underscores(text)
+                            if has_underscores:
+                                self.warnings.append(f"Found {count} consecutive underscores in {current_path}/header[{i}][{j}] - might be attempting to create underlining")
+                
+                # Controlla rows
+                for i, row in enumerate(table_content.get('rows', [])):
+                    for j, cell in enumerate(row):
+                        if isinstance(cell, dict):
+                            text = cell.get('text', '')
+                            has_underscores, count = check_underscores(text)
+                            if has_underscores:
+                                self.warnings.append(f"Found {count} consecutive underscores in {current_path}/row[{i}][{j}] - might be attempting to create underlining")
+            
+            # Per le liste, controlla gli items
+            if element.get('tag') == 'L':
+                for i, item in enumerate(element.get('items', [])):
+                    has_underscores, count = check_underscores(item)
+                    if has_underscores:
+                        self.warnings.append(f"Found {count} consecutive underscores in {current_path}/item[{i}] - might be attempting to create underlining")
                 
         for element in content:
             check_element(element)
