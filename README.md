@@ -5,22 +5,38 @@ A command-line tool for validating PDF accessibility, analyzing document structu
 ## Features
 
 - Full PDF accessibility validation
-- Document structure analysis
+- Document structure analysis 
+- Support for both local and remote PDF files
 - Validation of:
-  - Document tags and metadata
-  - Heading hierarchy
-  - Figure alt text
-  - Empty elements
-  - Lists structure and hierarchy:
+  - Document tags and metadata:
+    - Document tagging status
+    - Title presence
+    - Language declaration
+  - Heading hierarchy:
+    - H1 presence
+    - Correct heading levels sequence
+  - Figure alt text:
+    - Missing alternative text detection
+  - Tables structure:
+    - Header presence and proper structure
+    - Empty cells detection
+    - Duplicate headers check
+    - Multiple header rows warning
+    - Empty tables detection
+  - Lists structure:
     - Proper list tagging
     - Detection of untagged lists (consecutive paragraphs with bullets/numbers)
     - Misused list types (numbered items in unordered lists)
     - List hierarchy consistency
-  - Tables:
-    - Header presence and structure
-    - Empty cells detection
-    - Duplicate headers check
-    - Multiple header rows warning
+  - Formatting issues:
+    - Excessive underscores (used for underlining)
+    - Spaced capital letters (like "T E S T")
+    - Extra spaces used for layout
+  - Empty elements:
+    - Empty paragraphs
+    - Whitespace-only elements
+    - Empty headings
+    - Empty table cells
 - Multiple output formats (JSON, console reports)
 
 ## Requirements
@@ -30,7 +46,8 @@ A command-line tool for validating PDF accessibility, analyzing document structu
 
 ## Installation
 
-> ⚠️ **Note**: The installation procedure is currently a work in progress and may not be fully stable. Improvements are being made to make the installation process more robust.
+> [!WARNING]
+> The installation procedure is currently a work in progress and may not be fully stable. Improvements are being made to make the installation process more robust.
 
 1. Install PDFix SDK:
 ```bash
@@ -43,7 +60,23 @@ sudo sh -c 'wget https://raw.githubusercontent.com/dennisangemi/avalpdf/main/ava
 ```
 
 ## Usage
-After installation, you can run avalpdf from any directory:
+After installation, you can run avalpdf from any directory.
+
+### Quick start
+Simply run
+```sh
+avalpdf thesis.pdf
+```
+
+or 
+
+```sh
+avalpdf https://example.com/document.pdf
+```
+
+to get something like this:
+
+### Details
 
 ```sh
 # Basic validation with console output

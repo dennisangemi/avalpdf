@@ -7,6 +7,9 @@ import sys
 from pdfixsdk import *
 import ctypes
 from typing import Dict, List, Tuple
+import tempfile
+import urllib.request
+import urllib.parse
 
 # ANSI color codes
 COLOR_GREEN = '\033[32;1m'    # P tags (verde brillante)
@@ -1248,16 +1251,6 @@ class AccessibilityValidator:
 def analyze_pdf(pdf_path: str, options: dict) -> None:
     """
     Analyze a PDF file with configurable outputs
-    
-    options = {
-        'output_dir': Path or None,
-        'save_full': bool,
-        'save_simple': bool,
-        'save_report': bool,
-        'show_structure': bool,
-        'show_validation': bool,
-        'quiet': bool
-    }
     """
     try:
         # Setup output directory
@@ -1265,7 +1258,8 @@ def analyze_pdf(pdf_path: str, options: dict) -> None:
         output_dir.mkdir(parents=True, exist_ok=True)
         pdf_name = Path(pdf_path).stem
 
-        if not options['quiet']:
+        # Show conversion message only if saving JSON outputs
+        if (options['save_full'] or options['save_simple']) and not options['quiet']:
             print("🔄 Converting PDF to JSON structure...", file=sys.stderr)
         
         # Convert PDF to JSON
@@ -1350,6 +1344,34 @@ def analyze_pdf(pdf_path: str, options: dict) -> None:
         print(f"❌ Error: {str(e)}", file=sys.stderr)
         sys.exit(1)
 
+def download_pdf(url: str) -> Path:
+    """Download a PDF file from URL and save it to a temporary file"""
+    try:
+        # Validate URL
+        parsed = urllib.parse.urlparse(url)
+        if not all([parsed.scheme, parsed.netloc]):
+            raise ValueError("Invalid URL")
+
+        # Create temporary file
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+        tmp_path = Path(tmp.name)
+
+        # Download file
+        urllib.request.urlretrieve(url, tmp_path)
+        
+        return tmp_path
+
+    except Exception as e:
+        raise Exception(f"Failed to download PDF: {str(e)}")
+
+def is_url(path: str) -> bool:
+    """Check if the given path is a URL"""
+    try:
+        parsed = urllib.parse.urlparse(path)
+        return all([parsed.scheme, parsed.netloc])
+    except:
+        return False
+
 def main():
     parser = argparse.ArgumentParser(
         description='PDF Analysis Tool: Convert to JSON and validate accessibility',
@@ -1359,6 +1381,9 @@ Examples:
   Basic usage (shows full analysis by default)
   ./analyze_pdf.py document.pdf
   
+  Analyze remote PDF via URL
+  ./analyze_pdf.py https://example.com/document.pdf
+  
   Save reports to specific directory
   ./analyze_pdf.py document.pdf -o /path/to/output --report --simple
   
@@ -1367,7 +1392,7 @@ Examples:
 """
     )
     
-    parser.add_argument('input', help='Input PDF file')
+    parser.add_argument('input', help='Input PDF file or URL')
     parser.add_argument('--output-dir', '-o', help='Output directory for JSON files')
     
     # File output options
@@ -1382,31 +1407,49 @@ Examples:
     
     args = parser.parse_args()
     
-    # Input validation
-    input_path = Path(args.input)
-    if not input_path.is_file():
-        print(f"❌ Error: Input file '{args.input}' does not exist", file=sys.stderr)
+    try:
+        # Handle URL input
+        if is_url(args.input):
+            if not args.quiet:
+                print("📥 Connecting to remote source...", file=sys.stderr)
+            input_path = download_pdf(args.input)
+            cleanup_needed = True
+        else:
+            # Handle local file
+            input_path = Path(args.input)
+            cleanup_needed = False
+
+        if not input_path.is_file():
+            print(f"❌ Error: Input file '{args.input}' does not exist", file=sys.stderr)
+            sys.exit(1)
+        
+        # If no display options specified, enable both structure and validation display
+        show_structure = args.show_structure
+        show_validation = args.show_validation
+        if not any([args.show_structure, args.show_validation, args.quiet]):
+            show_structure = True
+            show_validation = True
+        
+        # Prepare options dictionary
+        options = {
+            'output_dir': args.output_dir,
+            'save_full': args.full,
+            'save_simple': args.simple,
+            'save_report': args.report,
+            'show_structure': show_structure,
+            'show_validation': show_validation,
+            'quiet': args.quiet
+        }
+        
+        analyze_pdf(str(input_path), options)
+
+        # Cleanup temporary file if needed
+        if cleanup_needed:
+            input_path.unlink()
+            
+    except Exception as e:
+        print(f"❌ Error: {str(e)}", file=sys.stderr)
         sys.exit(1)
-    
-    # If no display options specified, enable both structure and validation display
-    show_structure = args.show_structure
-    show_validation = args.show_validation
-    if not any([args.show_structure, args.show_validation, args.quiet]):
-        show_structure = True
-        show_validation = True
-    
-    # Prepare options dictionary
-    options = {
-        'output_dir': args.output_dir,
-        'save_full': args.full,
-        'save_simple': args.simple,
-        'save_report': args.report,
-        'show_structure': show_structure,
-        'show_validation': show_validation,
-        'quiet': args.quiet
-    }
-    
-    analyze_pdf(str(input_path), options)
 
 if __name__ == "__main__":
     main()
