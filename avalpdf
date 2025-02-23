@@ -180,18 +180,24 @@ def extract_content(element, level=0):
                                         is_ordered = True
                                         
                                 elif li_child.get('S') == 'LBody':
-                                    # Estrai il testo del corpo
+                                    # Estrai il testo del corpo ricorsivamente preservando spazi
+                                    def process_list_body(element):
+                                        if isinstance(element, dict):
+                                            if 'Content' in element:
+                                                for content_item in element['Content']:
+                                                    if content_item.get('Type') == 'Text':
+                                                        text = content_item.get('Text', '')
+                                                        # Aggiungi il testo senza strip() per preservare gli spazi
+                                                        body_text.append(text)
+                                            elif 'K' in element:
+                                                for child in element['K']:
+                                                    process_list_body(child)
+                                    
                                     for p in li_child.get('K', []):
-                                        if isinstance(p, dict):
-                                            if p.get('S') == 'P':
-                                                for k in p.get('K', []):
-                                                    if isinstance(k, dict) and 'Content' in k:
-                                                        for content_item in k['Content']:
-                                                            if content_item.get('Type') == 'Text':
-                                                                body_text.append(content_item.get('Text', ''))
+                                        process_list_body(p)
                                                                 
-                            # Combina label e body
-                            full_text = ' '.join(body_text).strip()
+                            # Combina label e body preservando gli spazi corretti
+                            full_text = ''.join(body_text).strip()
                             if label and full_text:
                                 items.append(f"{label} {full_text}")
                             elif full_text:
