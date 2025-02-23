@@ -444,31 +444,53 @@ class AccessibilityValidator:
         self.successes = []
         self.is_tagged = False
         
+        # Definizione dei pesi per ogni tipo di controllo
+        self.check_weights = {
+            'tagging': 15,        # Il tagging è fondamentale per l'accessibilità
+            'title': 10,          # Il titolo è importante per la navigazione
+            'language': 10,       # La lingua è importante per screen reader
+            'headings': 12,       # La struttura dei titoli è essenziale
+            'figures': 10,        # Le immagini necessitano di alt text
+            'tables': 12,         # Le tabelle richiedono una struttura corretta
+            'lists': 8,           # Le liste devono essere ben strutturate
+            'empty_elements': 5,  # Gli elementi vuoti sono meno critici
+            'underlining': 3,     # L'uso di underscore è minore
+            'spacing': 3          # Lo spaziamento delle maiuscole è minore
+        }
+        self.check_scores = {k: 0 for k in self.check_weights}
+
     def validate_metadata(self, metadata: Dict) -> None:
         # Check tagged status first
         tagged = metadata.get('tagged')
         if not tagged or tagged.lower() != 'true':
             self.issues.append("Document is not tagged")
+            self.check_scores['tagging'] = 0
             self.is_tagged = False
         else:
             self.successes.append("Document is properly tagged")
+            self.check_scores['tagging'] = 100
             self.is_tagged = True
             
         # Check title
         if not metadata.get('title'):
             self.issues.append("Title is missing or empty")
+            self.check_scores['title'] = 0
         else:
             self.successes.append("Document has a title")
+            self.check_scores['title'] = 100
             
         # Check language
         lang = metadata.get('lang', '').lower()
         if not lang.startswith('it'):
             self.issues.append(f"Document language is not Italian (found: {lang})")
+            self.check_scores['language'] = 0
         else:
             self.successes.append("Document language is Italian")
+            self.check_scores['language'] = 100
 
     def validate_empty_elements(self, content: List) -> None:
         if not self.is_tagged:
+            self.check_scores['empty_elements'] = 0
             return
             
         empty_elements = []
@@ -549,10 +571,14 @@ class AccessibilityValidator:
             
         if not (empty_elements or empty_table_cells or completely_empty_tables):
             self.successes.append("No empty elements found in tagged content")
+            self.check_scores['empty_elements'] = 100
+        else:
+            self.check_scores['empty_elements'] = 50
 
     def validate_figures(self, content: List) -> None:
         # Skip if document is not tagged
         if not self.is_tagged:
+            self.check_scores['figures'] = 0
             return
             
         figures = []
@@ -578,13 +604,18 @@ class AccessibilityValidator:
         if figures:
             if figures_without_alt:
                 self.issues.append(f"Found {len(figures_without_alt)} figures without alt text: {', '.join(figures_without_alt)}")
+                self.check_scores['figures'] = 50
             else:
                 count = len(figures)
                 self.successes.append(f"Found {count} figure{'' if count == 1 else 's'} with alternative text")
+                self.check_scores['figures'] = 100
+        else:
+            self.check_scores['figures'] = 0
 
     def validate_heading_structure(self, content: List) -> None:
         # Skip if document is not tagged
         if not self.is_tagged:
+            self.check_scores['headings'] = 0
             return
             
         headings = []
@@ -619,11 +650,16 @@ class AccessibilityValidator:
             if not any(self.issues):
                 count = len(headings)
                 self.successes.append(f"Found {count} heading{'' if count == 1 else 's'} with correct structure")
+                self.check_scores['headings'] = 100
+            else:
+                self.check_scores['headings'] = 50  # Struttura parzialmente corretta
         else:
             self.warnings.append("No headings found in document")
+            self.check_scores['headings'] = 0
 
     def validate_tables(self, content: List) -> None:
         if not self.is_tagged:
+            self.check_scores['tables'] = 0
             return
             
         tables = []
@@ -744,10 +780,16 @@ class AccessibilityValidator:
             if tables_with_duplicate_headers:
                 for table_id, duplicates in tables_with_duplicate_headers:
                     self.warnings.append(f"{table_id} has duplicate headers: {', '.join(duplicates)}")
+        
+        if not (empty_tables or tables_without_headers or tables_without_data):
+            self.check_scores['tables'] = 100
+        else:
+            self.check_scores['tables'] = 50
 
     def validate_possible_unordered_lists(self, content: List) -> None:
         """Check for consecutive paragraphs starting with '-' that might be unordered lists"""
         if not self.is_tagged:
+            self.check_scores['lists'] = 0
             return
             
         def find_consecutive_dash_paragraphs(elements: List, path: str = "") -> List[List[str]]:
@@ -780,12 +822,16 @@ class AccessibilityValidator:
         if sequences:
             for sequence in sequences:
                 self.warnings.append(
-                    f"Found {len(sequence)} consecutive paragraphs that might form an unordered list"
+                    f"Found sequence of {len(sequence)} paragraphs that might form an unordered list"
                 )
+            self.check_scores['lists'] = 50
+        else:
+            self.check_scores['lists'] = 100
 
     def validate_possible_ordered_lists(self, content: List) -> None:
         """Check for consecutive paragraphs starting with sequential numbers that might be ordered lists"""
         if not self.is_tagged:
+            self.check_scores['lists'] = 0
             return
             
         def find_consecutive_numbered_paragraphs(elements: List, path: str = "") -> List[List[str]]:
@@ -836,15 +882,18 @@ class AccessibilityValidator:
         
         if sequences:
             for sequence in sequences:
-                paths = [p[0] for p in sequence]
                 numbers = [str(p[2]) for p in sequence]
                 self.warnings.append(
-                    f"Found consecutive paragraphs numbered {', '.join(numbers)} that might form an ordered list at: {', '.join(paths)}"
+                    f"Found sequence of {len(numbers)} numbered paragraphs ({', '.join(numbers)}) that might form an ordered list"
                 )
+            self.check_scores['lists'] = 50
+        else:
+            self.check_scores['lists'] = 100
 
     def validate_misused_unordered_lists(self, content: List) -> None:
         """Check for unordered lists containing consecutive numbered items"""
         if not self.is_tagged:
+            self.check_scores['lists'] = 0
             return
             
         def extract_leading_number(text: str) -> tuple[bool, int]:
@@ -893,6 +942,11 @@ class AccessibilityValidator:
         
         for element in content:
             check_list_items(element)
+        
+        if not any(self.warnings):
+            self.check_scores['lists'] = 100
+        else:
+            self.check_scores['lists'] = 50
 
     def validate_excessive_underscores(self, content: List) -> None:
         """Check recursively for excessive consecutive underscores that might be used for underlining"""
@@ -950,6 +1004,11 @@ class AccessibilityValidator:
                 
         for element in content:
             check_element(element)
+        
+        if not any(self.warnings):
+            self.check_scores['underlining'] = 100
+        else:
+            self.check_scores['underlining'] = 50
 
     def validate_spaced_capitals(self, content: List) -> None:
         """Check for words written with spaced capital letters like 'C I T T À'"""
@@ -1018,13 +1077,31 @@ class AccessibilityValidator:
                 
         for element in content:
             check_element(element)
+        
+        if not any(self.warnings):
+            self.check_scores['spacing'] = 100
+        else:
+            self.check_scores['spacing'] = 50
+
+    def calculate_weighted_score(self) -> float:
+        """Calcola il punteggio pesato di accessibilità"""
+        total_weight = sum(self.check_weights.values())
+        weighted_sum = sum(
+            self.check_weights[check] * self.check_scores[check]
+            for check in self.check_weights
+        )
+        return round(weighted_sum / total_weight, 2)
 
     def generate_json_report(self) -> Dict:
         return {
             "validation_results": {
                 "issues": self.issues,
                 "warnings": self.warnings,
-                "successes": self.successes
+                "successes": self.successes,
+                "weighted_score": self.calculate_weighted_score(),
+                "detailed_scores": {
+                    check: score for check, score in self.check_scores.items()
+                }
             }
         }
 
@@ -1046,22 +1123,26 @@ class AccessibilityValidator:
             for issue in self.issues:
                 print(f"  • {issue}")
         
-        # Print summary
+        # Print summary with weighted score
         total = len(self.successes) + len(self.warnings) + len(self.issues)
+        weighted_score = self.calculate_weighted_score()
+        
         print(f"\n📊 Summary:")
         print(f"  • Total checks: {total}")
         print(f"  • Successes: {len(self.successes)} ✅")
         print(f"  • Warnings: {len(self.warnings)} ⚠️")
         print(f"  • Issues: {len(self.issues)} ❌")
+        print(f"  • Weighted Accessibility Score: {weighted_score}%")
         
         # Overall assessment
-        if not self.issues:
-            if not self.warnings:
-                print("\n🎉 Perfect! No accessibility issues found!")
-            else:
-                print("\n👍 Good! No major issues, but some warnings to consider.")
+        if weighted_score >= 90:
+            print("\n🎉 Excellent! Document has very good accessibility.")
+        elif weighted_score >= 70:
+            print("\n👍 Good! Document has decent accessibility but could be improved.")
+        elif weighted_score >= 50:
+            print("\n⚠️ Fair. Document needs accessibility improvements.")
         else:
-            print("\n🔧 Some accessibility issues need to be addressed.")
+            print("\n❌ Poor. Document has serious accessibility issues.")
 
 def analyze_pdf(pdf_path: str, options: dict) -> None:
     """
