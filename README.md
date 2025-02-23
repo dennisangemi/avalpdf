@@ -9,10 +9,18 @@ A command-line tool for validating PDF accessibility, analyzing document structu
 - Validation of:
   - Document tags and metadata
   - Heading hierarchy
-  - Table structure and headers
   - Figure alt text
   - Empty elements
-  - Lists (ordered and unordered)
+  - Lists structure and hierarchy:
+    - Proper list tagging
+    - Detection of untagged lists (consecutive paragraphs with bullets/numbers)
+    - Misused list types (numbered items in unordered lists)
+    - List hierarchy consistency
+  - Tables:
+    - Header presence and structure
+    - Empty cells detection
+    - Duplicate headers check
+    - Multiple header rows warning
 - Multiple output formats (JSON, console reports)
 
 ## Requirements
