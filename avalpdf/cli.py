@@ -1379,16 +1379,16 @@ def main():
         epilog="""
 Examples:
   Basic usage (shows full analysis by default)
-  ./analyze_pdf.py document.pdf
+  avalpdf document.pdf
   
   Analyze remote PDF via URL
-  ./analyze_pdf.py https://example.com/document.pdf
+  avalpdf https://example.com/document.pdf
   
   Save reports to specific directory
-  ./analyze_pdf.py document.pdf -o /path/to/output --report --simple
+  avalpdf document.pdf -o /path/to/output --report --simple
   
   Save all files without console output
-  ./analyze_pdf.py document.pdf --full --simple --report --quiet
+  avalpdf document.pdf --full --simple --report --quiet
 """
     )
     
