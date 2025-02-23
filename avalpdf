@@ -94,29 +94,57 @@ def extract_content(element, level=0):
                                 cell_type = cell.get('S', '')
                                 cell_content = []
                                 
-                                # Process cell content
-                                for cell_content_elem in cell.get('K', []):
-                                    nested_results = extract_content(cell_content_elem)
-                                    cell_content.extend(nested_results)
-                                
-                                # Usa il primo elemento trovato come valore della cella
-                                if cell_content:
-                                    if isinstance(cell_content[0], dict):
-                                        cell_value = cell_content[0]
+                                # Process cell content recursively to capture all nested elements
+                                def process_cell_content(cell_elem):
+                                    if isinstance(cell_elem, dict):
+                                        if cell_elem.get('S') == 'P':
+                                            # Create a paragraph element even if empty
+                                            p_content = []
+                                            if 'K' in cell_elem:
+                                                for k in cell_elem.get('K', []):
+                                                    if isinstance(k, dict):
+                                                        if 'Content' in k:
+                                                            for content_item in k['Content']:
+                                                                if content_item.get('Type') == 'Text':
+                                                                    text = content_item.get('Text', '').strip()
+                                                                    if text:
+                                                                        p_content.append(text)
+                                            return {
+                                                "tag": "P",
+                                                "text": " ".join(p_content) if p_content else ""
+                                            }
+                                        elif 'K' in cell_elem:
+                                            results = []
+                                            for k in cell_elem.get('K', []):
+                                                processed = process_cell_content(k)
+                                                if processed:
+                                                    if isinstance(processed, list):
+                                                        results.extend(processed)
+                                                    else:
+                                                        results.append(processed)
+                                            return results
+                                    return None
+
+                                # Process cell content and flatten nested arrays
+                                processed_content = process_cell_content(cell)
+                                if processed_content:
+                                    if isinstance(processed_content, list):
+                                        cell_content.extend(processed_content)
                                     else:
-                                        cell_value = ' '.join(str(item) for item in cell_content).strip()
-                                else:
-                                    # Crea una cella vuota ma mantieni l'informazione del tag
-                                    cell_value = {
-                                        "tag": "P",  # Di solito le celle hanno un P come contenitore
-                                        "text": ""
-                                    }
+                                        cell_content.append(processed_content)
                                 
-                                # Distinguish between header and data cells
+                                # If no content was processed, add an empty paragraph
+                                if not cell_content:
+                                    cell_content.append({
+                                        "tag": "P",
+                                        "text": ""
+                                    })
+                                
+                                # Add cell to appropriate section
                                 if cell_type == 'TH':
-                                    header_row.append(cell_value)
+                                    header_row.extend(cell_content)
                                 elif cell_type == 'TD':
-                                    data_row.append(cell_value)
+                                    data_row.extend(cell_content)
                             
                             # Add row to appropriate section
                             if header_row:
