@@ -74,10 +74,12 @@ or
 avalpdf https://example.com/document.pdf
 ```
 
-to get a report like this:
+to get a report like this
+
 ![accessibility report](https://github.com/user-attachments/assets/6f9fc73e-7bcc-4e8a-8c51-0000e11f18cf)
 
-and a preview of the structure:
+and a preview of the structure
+
 ![pdf structure preview](https://github.com/user-attachments/assets/d09266bc-39af-4e02-b477-55cbf72a95d5)
 
 
