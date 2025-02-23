@@ -158,38 +158,55 @@ def extract_content(element, level=0):
                 })
             
             elif tag_type == 'L':
-                list_items = []
+                items = []
                 is_ordered = False
                 
                 if 'K' in element:
-                    # Controlla il primo item per determinare se la lista è ordinata
                     for item in element.get('K', []):
                         if item.get('S') == 'LI':
-                            for child in item.get('K', []):
-                                if child.get('S') == 'Lbl':
-                                    for content in child.get('K', []):
-                                        if isinstance(content, dict) and 'Content' in content:
-                                            for text_item in content['Content']:
-                                                if text_item.get('Type') == 'Text':
-                                                    lbl_text = text_item.get('Text', '').strip()
-                                                    if lbl_text.replace('.', '').isdigit():
-                                                        is_ordered = True
-                                                    break
-                            break
+                            # Estrai separatamente label e corpo dell'elemento lista
+                            label = ""
+                            body_text = []
+                            
+                            for li_child in item.get('K', []):
+                                if li_child.get('S') == 'Lbl':
+                                    # Estrai il bullet/numero
+                                    for k in li_child.get('K', []):
+                                        if isinstance(k, dict) and 'Content' in k:
+                                            for content_item in k['Content']:
+                                                if content_item.get('Type') == 'Text':
+                                                    label += content_item.get('Text', '').strip()
+                                    if label.replace('.', '').isdigit():
+                                        is_ordered = True
+                                        
+                                elif li_child.get('S') == 'LBody':
+                                    # Estrai il testo del corpo
+                                    for p in li_child.get('K', []):
+                                        if isinstance(p, dict):
+                                            if p.get('S') == 'P':
+                                                for k in p.get('K', []):
+                                                    if isinstance(k, dict) and 'Content' in k:
+                                                        for content_item in k['Content']:
+                                                            if content_item.get('Type') == 'Text':
+                                                                body_text.append(content_item.get('Text', ''))
+                                                                
+                            # Combina label e body
+                            full_text = ' '.join(body_text).strip()
+                            if label and full_text:
+                                items.append(f"{label} {full_text}")
+                            elif full_text:
+                                items.append(full_text)
+                            elif label:
+                                items.append(label)
 
-                    # Estrai il testo degli elementi
-                    for item in element.get('K', []):
-                        item_text = extract_list_item_text(item)
-                        if item_text:
-                            list_items.append(item_text)
-                
-                if list_items:
+                if items:
                     results.append({
                         "tag": "L",
                         "ordered": is_ordered,
-                        "items": list_items
+                        "items": items
                     })
-            
+                return results
+
             else:
                 # Process children first to collect nested elements
                 if 'K' in element:
@@ -245,43 +262,51 @@ def extract_list_item_text(item):
             return None
 
         bullet = ""
-        text = ""
+        text_fragments = []
         
-        # Estrai prima il bullet point/numero
+        # Extract bullet and text from LI structure
         for child in item.get('K', []):
             if child.get('S') == 'Lbl':
-                for content in child.get('K', []):
-                    if isinstance(content, dict) and 'Content' in content:
-                        for text_item in content['Content']:
-                            if text_item.get('Type') == 'Text':
-                                bullet = text_item.get('Text', '').strip()
-            
-            # Estrai il contenuto del LBody
-            if child.get('S') == 'LBody':
-                # Processiamo ogni elemento P dentro LBody
+                # Extract bullet point
+                for k in child.get('K', []):
+                    if isinstance(k, dict) and 'Content' in k:
+                        for content_item in k['Content']:
+                            if content_item.get('Type') == 'Text':
+                                bullet = content_item.get('Text', '').strip()
+                                
+            elif child.get('S') == 'LBody':
+                # Process each paragraph in LBody
                 for p in child.get('K', []):
-                    if isinstance(p, dict) and p.get('S') == 'P':
-                        for k in p.get('K', []):
-                            if isinstance(k, dict):
-                                # Estrai il testo direttamente se presente
-                                if 'Content' in k:
-                                    for content_item in k['Content']:
-                                        if content_item.get('Type') == 'Text':
-                                            text += content_item.get('Text', '').strip() + " "
-                                # Gestisci elementi Span o altri contenitori
-                                elif k.get('S') in ['Span', 'Link']:
-                                    for span_content in k.get('K', []):
-                                        if isinstance(span_content, dict) and 'Content' in span_content:
-                                            for content_item in span_content['Content']:
-                                                if content_item.get('Type') == 'Text':
-                                                    text += content_item.get('Text', '').strip() + " "
+                    if isinstance(p, dict):
+                        if p.get('S') == 'P':
+                            # Process paragraph content preserving spaces
+                            for k in p.get('K', []):
+                                if isinstance(k, dict):
+                                    if 'Content' in k:
+                                        # Add each text fragment, including spaces
+                                        for content_item in k['Content']:
+                                            if content_item.get('Type') == 'Text':
+                                                text_fragments.append(content_item.get('Text', ''))
+                                    elif k.get('S') in ['Span', 'Link']:
+                                        for span_k in k.get('K', []):
+                                            if isinstance(span_k, dict) and 'Content' in span_k:
+                                                for content_item in span_k['Content']:
+                                                    if content_item.get('Type') == 'Text':
+                                                        text_fragments.append(content_item.get('Text', ''))
 
-        # Combina bullet e testo
-        text = text.strip()
-        if bullet or text:
-            if bullet and text:
-                return f"{bullet} {text}"
-            return bullet if bullet else text
+        # Join all text fragments directly, preserving spaces
+        text = ''.join(text_fragments).strip()
+        
+        # Handle different list marker formats
+        if bullet:
+            if bullet in ['•', '-', '*']:  # Common bullet points
+                return f"{bullet} {text}" if text else bullet
+            elif bullet.isdigit() or bullet.rstrip('.').isdigit():  # Numbered lists
+                return f"{bullet} {text}" if text else bullet
+            else:  # Other markers
+                return f"{bullet} {text}" if text else bullet
+        
+        return text if text else None
                 
     except Exception as e:
         print(f"Warning: Error extracting list item text: {str(e)}", file=sys.stderr)
@@ -468,7 +493,7 @@ class AccessibilityValidator:
                 
                 # Check for empty cells in headers
                 for i, header_row in enumerate(headers):
-                    for j, cell in enumerate(header_row):
+                    for j, cell in header_row:
                         if isinstance(cell, dict):
                             cell_text = cell.get('text', '').strip()
                         else:
@@ -863,6 +888,92 @@ class AccessibilityValidator:
         for element in content:
             check_list_items(element)
 
+    def validate_excessive_underscores(self, content: List) -> None:
+        """Check for excessive consecutive underscores that might be used for underlining"""
+        def check_underscores(text: str) -> bool:
+            return '_' * 5 in text  # Considera eccessivi 5 o più underscore consecutivi
+            
+        def check_element(element: Dict) -> None:
+            if element.get('tag') == 'P':
+                text = element.get('text', '')
+                if check_underscores(text):
+                    self.warnings.append(f"Found excessive underscores that might be used for underlining: '{text}'")
+            
+            # Check children recursively
+            for child in element.get('children', []):
+                check_element(child)
+                
+        for element in content:
+            check_element(element)
+
+    def validate_spaced_capitals(self, content: List) -> None:
+        """Check for words written with spaced capital letters like 'C I T T À'"""
+        import re
+        
+        def is_spaced_capitals(text: str) -> bool:
+            # Trova sequenze di lettere maiuscole separate da spazi dove ogni lettera è isolata
+            # Es: "C I T T À" match, "CITTÀ" no match, "DETERMINA NOMINA" no match
+            pattern = r'(?:^|\s)([A-ZÀÈÌÒÙ](?:\s+[A-ZÀÈÌÒÙ]){2,})(?:\s|$)'
+            matches = re.finditer(pattern, text)
+            spaced_words = []
+            
+            for match in matches:
+                # Verifica che non ci siano lettere consecutive senza spazio
+                word = match.group(1)
+                if all(c == ' ' or (c.isupper() and c.isalpha()) for c in word):
+                    spaced_words.append(word.strip())
+                    
+            return spaced_words
+            
+        def check_element(element: Dict, path: str = "") -> None:
+            current_path = f"{path}/{element['tag']}" if path else element['tag']
+            
+            # Controlla il testo dell'elemento corrente
+            if 'text' in element:
+                text = element.get('text', '')
+                spaced_words = is_spaced_capitals(text)
+                if spaced_words:
+                    for word in spaced_words:
+                        self.warnings.append(f"Found spaced capital letters in {current_path}: '{word}'")
+            
+            # Controlla i figli
+            for child in element.get('children', []):
+                check_element(child, current_path)
+            
+            # Per le tabelle, controlla le celle
+            if element.get('tag') == 'Table':
+                table_content = element.get('content', {})
+                # Controlla headers
+                for i, row in enumerate(table_content.get('headers', [])):
+                    for j, cell in enumerate(row):
+                        if isinstance(cell, dict):
+                            text = cell.get('text', '')
+                            spaced_words = is_spaced_capitals(text)
+                            if spaced_words:
+                                for word in spaced_words:
+                                    self.warnings.append(f"Found spaced capital letters in {current_path}/header[{i}][{j}]: '{word}'")
+                
+                # Controlla rows
+                for i, row in enumerate(table_content.get('rows', [])):
+                    for j, cell in enumerate(row):
+                        if isinstance(cell, dict):
+                            text = cell.get('text', '')
+                            spaced_words = is_spaced_capitals(text)
+                            if spaced_words:
+                                for word in spaced_words:
+                                    self.warnings.append(f"Found spaced capital letters in {current_path}/row[{i}][{j}]: '{word}'")
+            
+            # Per le liste, controlla gli items
+            if element.get('tag') == 'L':
+                for i, item in enumerate(element.get('items', [])):
+                    spaced_words = is_spaced_capitals(item)
+                    if spaced_words:
+                        for word in spaced_words:
+                            self.warnings.append(f"Found spaced capital letters in {current_path}/item[{i}]: '{word}'")
+                
+        for element in content:
+            check_element(element)
+
     def generate_json_report(self) -> Dict:
         return {
             "validation_results": {
@@ -988,6 +1099,9 @@ def analyze_pdf(pdf_path: str, options: dict) -> None:
             validator.validate_possible_unordered_lists(simplified_json.get('content', []))  # Add this
             validator.validate_possible_ordered_lists(simplified_json.get('content', []))    # Add this
             validator.validate_misused_unordered_lists(simplified_json.get('content', []))  # Add this
+            # Aggiungi i nuovi validatori
+            validator.validate_excessive_underscores(simplified_json.get('content', []))
+            validator.validate_spaced_capitals(simplified_json.get('content', []))
             
             # Show validation results if requested
             if options['show_validation']:
