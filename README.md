@@ -4,7 +4,6 @@ A command-line tool for validating PDF accessibility, analyzing document structu
 
 ## Features
 
-- Full PDF accessibility validation
 - Document structure analysis 
 - Support for both local and remote PDF files
 - Validation of:
