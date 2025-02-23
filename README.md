@@ -39,24 +39,10 @@ A command-line tool for validating PDF accessibility, analyzing document structu
     - Empty table cells
 - Multiple output formats (JSON, console reports)
 
-## Requirements
-
-- Python 3.6+
-- PDFix SDK
-
 ## Installation
 
-> [!WARNING]
-> The installation procedure is currently a work in progress and may not be fully stable. Improvements are being made to make the installation process more robust.
-
-1. Install PDFix SDK:
 ```bash
-pip install pdfix-sdk
-```
-
-2. Download and install avalpdf:
-```bash
-sudo sh -c 'wget https://raw.githubusercontent.com/dennisangemi/avalpdf/main/avalpdf -O /usr/local/bin/avalpdf && chmod +x /usr/local/bin/avalpdf'
+pip install avalpdf
 ```
 
 ## Usage
@@ -83,7 +69,6 @@ and a preview of the structure
 ![pdf structure preview](https://github.com/user-attachments/assets/d09266bc-39af-4e02-b477-55cbf72a95d5)
 
 
-
 ### Details
 
 ```sh
@@ -107,7 +92,6 @@ Command Line Options
 * `--output-dir`, `-o`: Specify output directory
 * `--show-structure`: Display document structure
 * `--show-validation`: Display validation results
-* `--show-all`: Show all information
 * `--quiet`, `-q`: Suppress console output
 
 Examples
