@@ -479,12 +479,12 @@ class AccessibilityValidator:
             self.check_scores['tagging'] = 100
             self.is_tagged = True
             
-        # Check title
+        # Check title with clearer message
         if not metadata.get('title'):
-            self.issues.append("Title is missing or empty")
+            self.issues.append("Document metadata is missing title property")
             self.check_scores['title'] = 0
         else:
-            self.successes.append("Document has a title")
+            self.successes.append("Document metadata includes title property")
             self.check_scores['title'] = 100
             
         # Check language
