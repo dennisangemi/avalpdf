@@ -1410,20 +1410,30 @@ class AccessibilityValidator:
         problematic_links = []
         
         def is_problematic_link(text: str) -> tuple[bool, str]:
-            """Check if link text is problematic"""
+            """Check if link text is problematic, excluding email addresses and institutional domains"""
             import re
+            
+            text = text.strip().lower()
+            
+            # Skip check for complete email addresses
+            if re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', text):
+                return False, ""
+                
+            # Skip check for partial email/institutional domains
+            if text.endswith(('.gov.it', '.comune.it', '.it.it', '.pec.it', 
+                             'pec.comune.it', '@pec.comune.it', '@comune.it')):
+                return False, ""
             
             # Common problematic patterns
             patterns = {
                 r'^https?://': "starts with http:// or https://",
                 r'^www\.': "starts with www.",
-                r'\.com$|\.org$|\.net$|\.it$': "ends with domain extension",
                 r'^click here$|^here$|^link$': "non-descriptive text",
                 r'^[0-9]+$': "contains only numbers"
             }
             
             for pattern, reason in patterns.items():
-                if re.search(pattern, text.lower().strip()):
+                if re.search(pattern, text):
                     return True, reason
                     
             return False, ""
