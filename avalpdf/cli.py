@@ -451,19 +451,19 @@ class AccessibilityValidator:
         self.successes = []
         self.is_tagged = False
         
-        # Modifica dei pesi per garantire un punteggio vicino al 99%
+        # Ribilanciamento dei pesi per dare più importanza alla struttura dei titoli
         self.check_weights = {
-            'tagging': 35,          # Aumentato ulteriormente
-            'title': 30,            # Aumentato ulteriormente
-            'language': 30,         # Aumentato ulteriormente
-            'headings': 4.6,        # Ridotto
-            'figures': 0.1,         # Minimo
-            'tables': 0.1,          # Minimo
-            'lists': 0.1,           # Minimo
-            'empty_elements': 0.01,  # Praticamente ignorato
-            'underlining': 0.01,    # Praticamente ignorato
-            'spacing': 0.01,        # Praticamente ignorato
-            'extra_spaces': 0.06    # Praticamente ignorato
+            'tagging': 25,          # Ridotto per dare più peso ai titoli
+            'title': 15,            # Ridotto
+            'language': 15,         # Ridotto
+            'headings': 35,         # Aumentato significativamente
+            'figures': 2,           # Leggermente aumentato
+            'tables': 2,            # Leggermente aumentato
+            'lists': 2,             # Leggermente aumentato
+            'empty_elements': 1,    # Invariato
+            'underlining': 1,       # Invariato
+            'spacing': 1,           # Invariato
+            'extra_spaces': 1       # Invariato
         }
         self.check_scores = {k: 0 for k in self.check_weights}
 
@@ -505,15 +505,12 @@ class AccessibilityValidator:
         # Dizionari per conteggiare elementi vuoti per tipo e relativi percorsi
         empty_counts = {
             'paragraphs': {'empty': 0, 'whitespace': 0, 'paths': []},
-            'headings': {'empty': 0, 'whitespace': 0, 'paths': []},
             'spans': {'empty': 0, 'whitespace': 0, 'paths': []},
             'tables': {'count': 0, 'paths': []},
             'table_cells': {'count': 0, 'paths': []},
             'lists': {'count': 0, 'paths': []},
             'list_items': {'count': 0, 'paths': []}
         }
-        
-        table_count = 0
         
         def check_element(element: Dict, path: str = "") -> None:
             tag = element.get('tag', '')
@@ -530,13 +527,8 @@ class AccessibilityValidator:
             
             # Controllo specifico per tipo di elemento
             if has_no_content or has_only_whitespace:
-                if tag.startswith('H'):
-                    if has_only_whitespace:
-                        empty_counts['headings']['whitespace'] += 1
-                    else:
-                        empty_counts['headings']['empty'] += 1
-                    empty_counts['headings']['paths'].append(current_path)
-                elif tag == 'P':
+                # Ignoriamo gli heading vuoti qui perché sono gestiti da validate_heading_structure
+                if tag == 'P':
                     if has_only_whitespace:
                         empty_counts['paragraphs']['whitespace'] += 1
                     else:
@@ -549,16 +541,12 @@ class AccessibilityValidator:
                         empty_counts['spans']['empty'] += 1
                     empty_counts['spans']['paths'].append(current_path)
             
-            # Gestione speciale per tabelle e altri elementi strutturali
-            # (resto del codice per tabelle e liste rimane invariato)
-            # ...existing code for table and list checks...
+            # Check children
+            for child in element.get('children', []):
+                check_element(child, current_path)
         
         for element in content:
             check_element(element)
-        
-        # Genera reports raggruppati
-        # Issues (problemi critici - tabelle e liste)
-        # ...existing code for critical issues...
         
         # Warnings (problemi non critici - elementi di testo)
         empty_text_elements = []
@@ -570,15 +558,7 @@ class AccessibilityValidator:
             if empty_counts['paragraphs']['whitespace'] > 0:
                 desc += f" ({empty_counts['paragraphs']['whitespace']} with only spaces)"
             empty_text_elements.append(desc)
-            
-        # Headings
-        total_empty_h = empty_counts['headings']['empty'] + empty_counts['headings']['whitespace']
-        if total_empty_h > 0:
-            desc = f"{total_empty_h} headings"
-            if empty_counts['headings']['whitespace'] > 0:
-                desc += f" ({empty_counts['headings']['whitespace']} with only spaces)"
-            empty_text_elements.append(desc)
-            
+        
         # Spans
         total_empty_spans = empty_counts['spans']['empty'] + empty_counts['spans']['whitespace']
         if total_empty_spans > 0:
@@ -586,7 +566,7 @@ class AccessibilityValidator:
             if empty_counts['spans']['whitespace'] > 0:
                 desc += f" ({empty_counts['spans']['whitespace']} with only spaces)"
             empty_text_elements.append(desc)
-            
+        
         if empty_text_elements:
             self.warnings.append(f"Found empty text elements: {', '.join(empty_text_elements)}")
         
@@ -599,32 +579,13 @@ class AccessibilityValidator:
             for k in ['tables', 'table_cells', 'lists', 'list_items']
         ) and all(
             empty_counts[k]['empty'] == 0 and empty_counts[k]['whitespace'] == 0
-            for k in ['headings', 'spans']
+            for k in ['spans']
         )
 
         if only_empty_paragraphs and not any(self.issues):
             # Se ci sono SOLO paragrafi vuoti e nessun altro problema
-            self.check_scores['empty_elements'] = 100  # Punteggio pieno
-            self.check_scores['figures'] = 100   # Punteggio pieno se non ci sono figure
-            self.check_scores['tables'] = 100    # Punteggio pieno se non ci sono tabelle
-            self.check_scores['lists'] = 100     # Punteggio pieno se non ci sono liste
-            self.check_scores['underlining'] = 100  # Punteggio pieno
-            self.check_scores['spacing'] = 100      # Punteggio pieno
-            self.check_scores['extra_spaces'] = 100 # Punteggio pieno
-            
-            # Modifica il warning per essere più descrittivo
-            empty_text_elements = []
-            total_empty_p = empty_counts['paragraphs']['empty'] + empty_counts['paragraphs']['whitespace']
-            if total_empty_p > 0:
-                desc = f"{total_empty_p} spacing elements"
-                empty_text_elements.append(desc)
-            
-            if empty_text_elements:
-                # Rimuovi eventuali warning precedenti sui paragrafi vuoti
-                self.warnings = [w for w in self.warnings if "empty text elements" not in w]
-                self.warnings.append(f"Note: Found {', '.join(empty_text_elements)}")
+            self.check_scores['empty_elements'] = 100
         else:
-            # Logica esistente per altri casi
             if not any(self.issues):
                 self.check_scores['empty_elements'] = 100
             else:
@@ -668,19 +629,23 @@ class AccessibilityValidator:
             self.check_scores['figures'] = 0
 
     def validate_heading_structure(self, content: List) -> None:
-        # Skip if document is not tagged
         if not self.is_tagged:
             self.check_scores['headings'] = 0
             return
             
         headings = []
+        empty_headings = []
         
         def collect_headings(element: Dict) -> None:
             tag = element.get('tag', '')
             if tag.startswith('H'):
                 try:
                     level = int(tag[1:])
-                    headings.append(level)
+                    text = element.get('text', '').strip()
+                    if not text:
+                        empty_headings.append(level)
+                    else:
+                        headings.append(level)
                 except ValueError:
                     pass
             
@@ -690,27 +655,46 @@ class AccessibilityValidator:
         for element in content:
             collect_headings(element)
         
-        if headings:
+        # Logica di scoring rivista per i titoli
+        if empty_headings and not headings:
+            # Se ci sono solo titoli vuoti, il punteggio deve essere molto basso
+            self.issues.append(f"Found {len(empty_headings)} empty heading{'s' if len(empty_headings) > 1 else ''} (H{', H'.join(map(str, empty_headings))}) and no valid headings")
+            self.check_scores['headings'] = 0
+            return
+        
+        if empty_headings:
+            # Se ci sono alcuni titoli vuoti ma anche titoli validi
+            self.issues.append(f"Found {len(empty_headings)} empty heading{'s' if len(empty_headings) > 1 else ''} (H{', H'.join(map(str, empty_headings))})")
+            self.check_scores['headings'] = 30  # Punteggio penalizzato ma non azzerato
+            
+        if not headings and not empty_headings:
+            # Se non ci sono titoli affatto
+            self.warnings.append("No headings found in document")
+            self.check_scores['headings'] = 20
+            return
+            
+        if headings:  # Verifichiamo la struttura solo se ci sono headings non vuoti
             # Check if first heading is H1
             if headings[0] != 1:
                 self.issues.append(f"First heading is H{headings[0]}, should be H1")
+                self.check_scores['headings'] = max(self.check_scores['headings'], 40)
             
             # Check heading hierarchy
             prev_level = 1
+            hierarchy_issues = []
             for level in headings:
                 if level > prev_level + 1:
-                    self.issues.append(f"Incorrect heading structure: H{prev_level} followed by H{level}")
+                    hierarchy_issues.append(f"H{prev_level} followed by H{level}")
                 prev_level = level
             
-            if not any(self.issues):
+            if hierarchy_issues:
+                self.issues.append("Incorrect heading hierarchy: " + ", ".join(hierarchy_issues))
+                self.check_scores['headings'] = max(self.check_scores['headings'], 50)
+            
+            if not any(issue for issue in self.issues if "heading" in issue.lower()):
                 count = len(headings)
-                self.successes.append(f"Found {count} heading{'' if count == 1 else 's'} with correct structure")
+                self.successes.append(f"Found {count} heading{'s' if count > 1 else ''} with correct structure")
                 self.check_scores['headings'] = 100
-            else:
-                self.check_scores['headings'] = 50  # Struttura parzialmente corretta
-        else:
-            self.warnings.append("No headings found in document")
-            self.check_scores['headings'] = 0
 
     def validate_tables(self, content: List) -> None:
         if not self.is_tagged:
