@@ -94,60 +94,14 @@ def extract_content(element, level=0):
                             header_row = []
                             data_row = []
                             for cell in row.get('K', []):
+                                cell_content = process_table_cell(cell)
                                 cell_type = cell.get('S', '')
-                                cell_content = []
                                 
-                                # Process cell content recursively to capture all nested elements
-                                def process_cell_content(cell_elem):
-                                    if isinstance(cell_elem, dict):
-                                        if cell_elem.get('S') == 'P':
-                                            # Create a paragraph element even if empty
-                                            p_content = []
-                                            if 'K' in cell_elem:
-                                                for k in cell_elem.get('K', []):
-                                                    if isinstance(k, dict):
-                                                        if 'Content' in k:
-                                                            for content_item in k['Content']:
-                                                                if content_item.get('Type') == 'Text':
-                                                                    text = content_item.get('Text', '').strip()
-                                                                    if text:
-                                                                        p_content.append(text)
-                                            return {
-                                                "tag": "P",
-                                                "text": " ".join(p_content) if p_content else ""
-                                            }
-                                        elif 'K' in cell_elem:
-                                            results = []
-                                            for k in cell_elem.get('K', []):
-                                                processed = process_cell_content(k)
-                                                if processed:
-                                                    if isinstance(processed, list):
-                                                        results.extend(processed)
-                                                    else:
-                                                        results.append(processed)
-                                            return results
-                                    return None
-
-                                # Process cell content and flatten nested arrays
-                                processed_content = process_cell_content(cell)
-                                if processed_content:
-                                    if isinstance(processed_content, list):
-                                        cell_content.extend(processed_content)
-                                    else:
-                                        cell_content.append(processed_content)
-                                
-                                # If no content was processed, add an empty paragraph
-                                if not cell_content:
-                                    cell_content.append({
-                                        "tag": "P",
-                                        "text": ""
-                                    })
-                                
-                                # Add cell to appropriate section
-                                if cell_type == 'TH':
-                                    header_row.extend(cell_content)
-                                elif cell_type == 'TD':
-                                    data_row.extend(cell_content)
+                                if cell_content:
+                                    if cell_type == 'TH':
+                                        header_row.extend(cell_content)
+                                    elif cell_type == 'TD':
+                                        data_row.extend(cell_content)
                             
                             # Add row to appropriate section
                             if header_row:
@@ -160,6 +114,20 @@ def extract_content(element, level=0):
                     "content": table_content
                 })
             
+            elif tag_type == 'Sect':
+                # Estrai il contenuto direttamente dal Sect
+                element_dict["text"] = ""  # Inizializza text vuoto
+                
+                if 'K' in element:
+                    for child in element['K']:
+                        child_results = extract_content(child, level + 1)
+                        if child_results:
+                            child_elements.extend(child_results)
+                
+                if child_elements:
+                    element_dict["children"] = child_elements
+                results.append(element_dict)
+                
             elif tag_type == 'L':
                 items = []
                 is_ordered = False
@@ -225,15 +193,9 @@ def extract_content(element, level=0):
                             
                         if 'Content' in child:
                             try:
-                                # Collect text fragments preserving exact spacing
-                                text_fragments = []
-                                for content_item in child.get('Content', []):
-                                    if content_item.get('Type') == 'Text':
-                                        # Add text exactly as is, without stripping
-                                        text_fragments.append(content_item.get('Text', ''))
+                                text_fragments = extract_text_content(child.get('Content', []))
                                 if text_fragments:
-                                    # Join fragments without modifying spaces
-                                    content.append(''.join(text_fragments))
+                                    content.extend(text_fragments)
                             except (KeyError, AttributeError):
                                 continue
                         else:
@@ -241,10 +203,8 @@ def extract_content(element, level=0):
                             child_elements.extend(nested_results)
                 
                 # Create element with text and children
-                # Join content fragments without modifying spaces
                 text = ''.join(content)
                 
-                # Add text only if non-empty
                 if text or text == '':  # Include empty strings
                     element_dict["text"] = text
                 if child_elements:
@@ -255,7 +215,7 @@ def extract_content(element, level=0):
         # Process siblings for Document tag
         elif 'K' in element and isinstance(element.get('K'), list):
             for child in element.get('K', []):
-                if isinstance(child, dict):  # Verifica esplicita che child sia un dict
+                if isinstance(child, dict):
                     nested_results = extract_content(child, level + 1)
                     results.extend(nested_results)
                     
@@ -263,6 +223,83 @@ def extract_content(element, level=0):
         print(f"Warning: Error processing element: {str(e)}", file=sys.stderr)
         
     return results
+
+def process_table_cell(cell):
+    """Process table cell content recursively"""
+    results = []
+    
+    if not isinstance(cell, dict):
+        return [{"tag": "P", "text": ""}]
+        
+    cell_type = cell.get('S', '')
+    
+    if cell_type in ['TD', 'TH']:
+        has_content = False
+        for k in cell.get('K', []):
+            # Process nested elements
+            if isinstance(k, dict):
+                tag = k.get('S', '')
+                if tag:
+                    if tag == 'Figure':
+                        # Special handling for Figure tags
+                        content = {
+                            "tag": "Figure",
+                            "text": k.get('Alt', '') or ""
+                        }
+                        results.append(content)
+                        has_content = True
+                    else:
+                        content = {"tag": tag}
+                        
+                        # Extract text content and nested elements
+                        if 'K' in k:
+                            text_fragments = []
+                            nested_elements = []
+                            
+                            for child in k['K']:
+                                if isinstance(child, dict):
+                                    child_tag = child.get('S', '')
+                                    if child_tag == 'Figure':
+                                        # Handle nested figures
+                                        nested_elements.append({
+                                            "tag": "Figure",
+                                            "text": child.get('Alt', '') or ""
+                                        })
+                                        has_content = True
+                                    elif 'Content' in child:
+                                        fragments = extract_text_content(child['Content'])
+                                        text_fragments.extend(fragments)
+                                    else:
+                                        # Recursively process nested structures
+                                        child_results = process_table_cell(child)
+                                        nested_elements.extend(child_results)
+                            
+                            if text_fragments:
+                                content["text"] = ''.join(text_fragments)
+                                has_content = True
+                            else:
+                                content["text"] = ""
+                                
+                            if nested_elements:
+                                content["children"] = nested_elements
+                                has_content = True
+                                
+                        results.append(content)
+        
+        # Se non è stato trovato alcun contenuto, aggiungi un elemento P vuoto
+        if not results:
+            results.append({"tag": "P", "text": ""})
+    
+    return results
+
+def extract_text_content(content_list):
+    """Extract text content from Content list"""
+    text_fragments = []
+    for content_item in content_list:
+        if content_item.get('Type') == 'Text':
+            # Add text exactly as is, without stripping
+            text_fragments.append(content_item.get('Text', ''))
+    return text_fragments
 
 def extract_list_item_text(item):
     """Helper function to extract text from list items safely"""
@@ -342,49 +379,101 @@ def print_formatted_content(element, level=0):
     """Stampa il contenuto in modo leggibile con indentazione"""
     indent = "  " * level
     
-    if element.get('tag') == 'Figure':
-        print(f"{indent}{COLOR_ORANGE}[Figure]{COLOR_RESET} {element.get('text', '')}")
+    tag = element.get('tag', '')
+    text = element.get('text', '')
+    children = element.get('children', [])
+
+    # Gestione speciale per P con figura annidata
+    if tag == 'P' and len(children) == 1 and children[0].get('tag') == 'Figure':
+        figure = children[0]
+        print(f"{indent}{COLOR_GREEN}[P]{COLOR_RESET} > {COLOR_ORANGE}[Figure]{COLOR_RESET} {figure.get('text', '')}")
         return
 
-    if element.get('tag') == 'Table':
+    # Gestione tabelle
+    if tag == 'Table':
         print(f"{indent}{COLOR_PURPLE}[Table]{COLOR_RESET}")
+        table_content = element.get('content', {})
         
         # Print headers if present
-        if element['content']['headers']:
-            print(f"{indent}  {COLOR_PURPLE}[Header]{COLOR_RESET}")
-            for header_row in element['content']['headers']:
-                row_text = []
-                for cell in header_row:
-                    if isinstance(cell, dict):
-                        tag = f"{COLOR_GREEN}[{cell['tag']}]{COLOR_RESET} " if 'tag' in cell else ""
-                        if 'children' in cell:
-                            nested = [f"{child['text']}" for child in cell['children']]
-                            row_text.append(f"{tag}{cell.get('text', '')} -> {' '.join(nested)}")
-                        else:
-                            row_text.append(f"{tag}{cell.get('text', '')}")
-                    else:
-                        row_text.append(str(cell))
-                print(f"{indent}    {' | '.join(row_text)}")
-        
-        # Print data rows
-        if element['content']['rows']:
-            print(f"{indent}  {COLOR_PURPLE}[Data]{COLOR_RESET}")
-            for row in element['content']['rows']:
-                row_text = []
+        headers = table_content.get('headers', [])
+        if headers:
+            print(f"{indent}  {COLOR_PURPLE}[Headers]{COLOR_RESET}")
+            for row in headers:
+                cells = []
                 for cell in row:
                     if isinstance(cell, dict):
-                        tag = f"{COLOR_GREEN}[{cell['tag']}]{COLOR_RESET} " if 'tag' in cell else ""
-                        if 'children' in cell:
-                            nested = [f"{child['text']}" for child in cell['children']]
-                            row_text.append(f"{tag}{cell.get('text', '')} -> {' '.join(nested)}")
+                        cell_content = format_cell_content(cell).strip()
+                        if cell_content:
+                            cells.append(cell_content)
                         else:
-                            row_text.append(f"{tag}{cell.get('text', '')}")
-                    else:
-                        row_text.append(str(cell))
-                print(f"{indent}    {' | '.join(row_text)}")
+                            cells.append(f"{COLOR_GREEN}[Empty]{COLOR_RESET}")
+                if cells:
+                    print(f"{indent}    | " + " | ".join(cells) + " |")
+
+        # Print data rows
+        rows = table_content.get('rows', [])
+        if rows:
+            print(f"{indent}  {COLOR_PURPLE}[Rows]{COLOR_RESET}")
+            for row in rows:
+                cells = []
+                for cell in row:
+                    if isinstance(cell, dict):
+                        cell_content = format_cell_content(cell).strip()
+                        if cell_content:
+                            cells.append(cell_content)
+                        else:
+                            cells.append(f"{COLOR_GREEN}[Empty]{COLOR_RESET}")
+                if cells:
+                    print(f"{indent}    | " + " | ".join(cells) + " |")
         return
 
-    if element.get('tag') == 'L':
+    # Handle other elements
+    tag = element.get('tag', '')
+    text = element.get('text', '')
+    children = element.get('children', [])
+
+    if tag == 'Table':
+        print(f"{indent}{COLOR_PURPLE}[Table]{COLOR_RESET}")
+        table_content = element.get('content', {})
+        
+        # Print headers if present
+        headers = table_content.get('headers', [])
+        if headers:
+            print(f"{indent}  {COLOR_PURPLE}[Headers]{COLOR_RESET}")
+            for row in headers:
+                cells = []
+                for cell in row:
+                    if isinstance(cell, dict):
+                        cell_content = format_cell_content(cell, level + 3)
+                        cells.append(cell_content)
+                print(f"{indent}    | " + " | ".join(cells) + " |")
+
+        # Print data rows
+        rows = table_content.get('rows', [])
+        if rows:
+            print(f"{indent}  {COLOR_PURPLE}[Rows]{COLOR_RESET}")
+            for row in rows:
+                cells = []
+                for cell in row:
+                    if isinstance(cell, dict):
+                        cell_content = format_cell_content(cell, level + 3)
+                        cells.append(cell_content)
+                if cells:  # Solo stampa righe che hanno almeno una cella con contenuto
+                    print(f"{indent}    | " + " | ".join(cells) + " |")
+        return
+        
+    # Handle other elements
+    if tag == 'P':
+        tag_str = f"{COLOR_GREEN}[{tag}]{COLOR_RESET}"
+    elif tag.startswith('H'):
+        tag_str = f"{COLOR_RED}[{tag}]{COLOR_RESET}"
+    elif tag == 'Figure':
+        print(f"{indent}{COLOR_ORANGE}[Figure]{COLOR_RESET} {text}")
+        if children:  # Process any nested elements
+            for child in children:
+                print_formatted_content(child, level + 1)
+        return
+    elif tag == 'L':
         list_type = f"{COLOR_BLUE}[ORDERED LIST]{COLOR_RESET}" if element.get('ordered', False) else f"{COLOR_BLUE}[UNORDERED LIST]{COLOR_RESET}"
         print(f"{indent}{list_type}")
         if element.get('items'):
@@ -398,47 +487,62 @@ def print_formatted_content(element, level=0):
                 for item in element.get('items'):
                     print(f"{indent}  {item}")
         return
-
-    # Gestione standard per altri tag
-    tag = element['tag']
-    if tag == 'P':
-        tag_str = f"{COLOR_GREEN}[{tag}]{COLOR_RESET}"
-    elif tag.startswith('H'):
-        tag_str = f"{COLOR_RED}[{tag}]{COLOR_RESET}"
     else:
         tag_str = f"[{tag}]"
+
+    # Print current element
+    if text.strip():
+        print(f"{indent}{tag_str} {text}")
+    elif tag != 'Sect':  # Non stampare elementi Sect vuoti
+        print(f"{indent}{tag_str}")
+            
+    # Print children
+    if children:
+        for child in children:
+            print_formatted_content(child, level + 1)
+
+def format_cell_content(element, level=0) -> str:
+    """Format cell content recursively including nested elements"""
+    if not isinstance(element, dict):
+        return ""
         
-    text = element.get('text', '')
+    tag = element.get('tag', '')
+    text = element.get('text', '').strip()
     children = element.get('children', [])
     
-    if children:
-        child_texts = []
-        for child in children:
-            if child.get('tag') == 'Link':
-                if 'url' in child:
-                    child_texts.append(f"[LINK][{child.get('url')}]: {child.get('text')}")
-                else:
-                    child_texts.append(f"[LINK] {child.get('text')}")
-            elif child.get('tag') == 'Figure':
-                child_texts.append(f"{COLOR_ORANGE}[IMAGE]{COLOR_RESET} {child.get('text', '')}")
-            elif child.get('tag') == 'Span':
-                child_texts.append(f"[SPAN] {child.get('text', '')}")
-            else:
-                child_texts.append(child.get('text', ''))
+    parts = []
+    
+    if tag == 'P' and len(children) == 1 and children[0].get('tag') == 'Figure':
+        # Per P con una sola figura annidata, mostra entrambi i tag
+        figure = children[0]
+        return f"{COLOR_GREEN}[P]{COLOR_RESET} > {COLOR_ORANGE}[Figure]{COLOR_RESET} {figure.get('text', '')}"
         
-        # Stampa con indentazione quando c'è sia testo che figure
-        has_figures = any(child.get('tag') == 'Figure' for child in children)
-        if has_figures and text:
-            print(f"{indent}{tag_str} {text}")
-            print(f"{indent}  -> {', '.join(child_texts)}")
-        else:
-            if text:
-                print(f"{indent}{tag_str} {text} -> {', '.join(child_texts)}")
-            else:
-                print(f"{indent}{tag_str} -> {', '.join(child_texts)}")
+    # Gestisci altri tag
+    if tag == 'Figure':
+        parts.append(f"{COLOR_ORANGE}[Figure]{COLOR_RESET}")
+        if text:
+            parts.append(text)
+    elif tag.startswith('H'):
+        parts.append(f"{COLOR_RED}[{tag}]{COLOR_RESET}")
+        if text:
+            parts.append(text)
+    elif tag == 'P':
+        parts.append(f"{COLOR_GREEN}[{tag}]{COLOR_RESET}")
+        if text:
+            parts.append(text)
     else:
-        print(f"{indent}{tag_str} {text}")
-
+        parts.append(f"[{tag}]")
+        if text:
+            parts.append(text)
+            
+    # Processa i figli ricorsivamente
+    if children:
+        for child in children:
+            child_content = format_cell_content(child, level + 1)
+            if child_content:
+                parts.append(f"> {child_content}")
+                
+    return ' '.join(parts)
 
 def is_only_whitespace(text: str) -> bool:
     """Helper function to check if text contains only whitespace characters"""
@@ -464,9 +568,17 @@ class AccessibilityValidator:
             'empty_elements': 1,    # Invariato
             'underlining': 1,       # Invariato
             'spacing': 1,           # Invariato
-            'extra_spaces': 1       # Invariato
+            'extra_spaces': 1,       # Invariato
+            'links': 2,  # Add new weight for links
         }
         self.check_scores = {k: 0 for k in self.check_weights}
+        self.empty_elements_count = {
+            'paragraphs': 0,
+            'table_cells': 0,
+            'headings': 0,
+            'spans': 0,
+            'total': 0
+        }
 
     def validate_metadata(self, metadata: Dict) -> None:
         # Check tagged status first
@@ -503,16 +615,6 @@ class AccessibilityValidator:
             self.check_scores['empty_elements'] = 0
             return
             
-        # Dizionari per conteggiare elementi vuoti per tipo e relativi percorsi
-        empty_counts = {
-            'paragraphs': {'empty': 0, 'whitespace': 0, 'paths': []},
-            'spans': {'empty': 0, 'whitespace': 0, 'paths': []},
-            'tables': {'count': 0, 'paths': []},
-            'table_cells': {'count': 0, 'paths': []},
-            'lists': {'count': 0, 'paths': []},
-            'list_items': {'count': 0, 'paths': []}
-        }
-        
         def check_element(element: Dict, path: str = "") -> None:
             tag = element.get('tag', '')
             text = element.get('text', '')
@@ -520,77 +622,42 @@ class AccessibilityValidator:
             
             current_path = f"{path}/{tag}" if path else tag
             
-            # Un elemento è considerato vuoto se:
-            # 1. Non ha testo o ha solo spazi/tab
-            # 2. Non ha figli
+            # Check for empty content
             has_no_content = not text.strip() and not children
-            has_only_whitespace = is_only_whitespace(text) and not children
-            
-            # Controllo specifico per tipo di elemento
-            if has_no_content or has_only_whitespace:
-                # Ignoriamo gli heading vuoti qui perché sono gestiti da validate_heading_structure
+            if has_no_content:
                 if tag == 'P':
-                    if has_only_whitespace:
-                        empty_counts['paragraphs']['whitespace'] += 1
-                    else:
-                        empty_counts['paragraphs']['empty'] += 1
-                    empty_counts['paragraphs']['paths'].append(current_path)
+                    self.empty_elements_count['paragraphs'] += 1
+                    self.empty_elements_count['total'] += 1
+                elif tag.startswith('H'):
+                    self.empty_elements_count['headings'] += 1
+                    self.empty_elements_count['total'] += 1
                 elif tag == 'Span':
-                    if has_only_whitespace:
-                        empty_counts['spans']['whitespace'] += 1
-                    else:
-                        empty_counts['spans']['empty'] += 1
-                    empty_counts['spans']['paths'].append(current_path)
+                    self.empty_elements_count['spans'] += 1
+                    self.empty_elements_count['total'] += 1
+                    
+            # Special check for table cells
+            if tag == 'Table':
+                table_content = element.get('content', {})
+                # Check both headers and rows
+                for section in ['headers', 'rows']:
+                    for row in table_content.get(section, []):
+                        for cell in row:
+                            if isinstance(cell, dict) and not cell.get('text', '').strip():
+                                self.empty_elements_count['table_cells'] += 1
+                                self.empty_elements_count['total'] += 1
             
-            # Check children
+            # Check children recursively
             for child in element.get('children', []):
                 check_element(child, current_path)
+                
+        # Reset counters
+        self.empty_elements_count = {k: 0 for k in self.empty_elements_count}
         
+        # Check all elements
         for element in content:
             check_element(element)
-        
-        # Warnings (problemi non critici - elementi di testo)
-        empty_text_elements = []
-        
-        # Paragrafi
-        total_empty_p = empty_counts['paragraphs']['empty'] + empty_counts['paragraphs']['whitespace']
-        if total_empty_p > 0:
-            desc = f"{total_empty_p} paragraphs"
-            if empty_counts['paragraphs']['whitespace'] > 0:
-                desc += f" ({empty_counts['paragraphs']['whitespace']} with only spaces)"
-            empty_text_elements.append(desc)
-        
-        # Spans
-        total_empty_spans = empty_counts['spans']['empty'] + empty_counts['spans']['whitespace']
-        if total_empty_spans > 0:
-            desc = f"{total_empty_spans} spans"
-            if empty_counts['spans']['whitespace'] > 0:
-                desc += f" ({empty_counts['spans']['whitespace']} with only spaces)"
-            empty_text_elements.append(desc)
-        
-        if empty_text_elements:
-            self.warnings.append(f"Found empty text elements: {', '.join(empty_text_elements)}")
-        
-        # Modifica della logica di scoring per gli elementi vuoti
-        only_empty_paragraphs = (
-            (empty_counts['paragraphs']['empty'] > 0 or 
-             empty_counts['paragraphs']['whitespace'] > 0)
-        ) and all(
-            empty_counts[k]['count'] == 0 
-            for k in ['tables', 'table_cells', 'lists', 'list_items']
-        ) and all(
-            empty_counts[k]['empty'] == 0 and empty_counts[k]['whitespace'] == 0
-            for k in ['spans']
-        )
-
-        if only_empty_paragraphs and not any(self.issues):
-            # Se ci sono SOLO paragrafi vuoti e nessun altro problema
-            self.check_scores['empty_elements'] = 100
-        else:
-            if not any(self.issues):
-                self.check_scores['empty_elements'] = 100
-            else:
-                self.check_scores['empty_elements'] = 50
+            
+        # ... rest of existing validate_empty_elements code ...
 
     def is_complex_alt_text(self, alt_text: str) -> tuple[bool, str]:
         """
@@ -616,7 +683,7 @@ class AccessibilityValidator:
         return False, ""
 
     def validate_figures(self, content: List) -> None:
-        """Validate figures and their alt text"""
+        """Validate figures and their alt text - checks recursively through all structures"""
         if not self.is_tagged:
             self.check_scores['figures'] = 0
             self.check_scores['alt_text'] = 0
@@ -626,13 +693,14 @@ class AccessibilityValidator:
         figures_without_alt = []
         figures_with_complex_alt = []
         
-        def check_figures(element: Dict, path: str = "", page_num: int = 1) -> None:
-            tag = element.get('tag', '')
-            current_path = f"{path}/{tag}" if path else tag
-            
-            # Check per il cambio pagina
+        def check_figures_recursive(element: Dict, path: str = "", page_num: int = 1) -> None:
+            # Check cambio pagina
             if 'Pg' in element:
                 page_num = int(element['Pg'])
+                
+            # Process current element
+            tag = element.get('tag', '')
+            current_path = f"{path}/{tag}" if path else tag
             
             if tag == 'Figure':
                 figure_num = len(figures) + 1
@@ -646,12 +714,28 @@ class AccessibilityValidator:
                         figures_with_complex_alt.append((current_path, alt_text, reason, figure_num, page_num))
             
             # Check children
-            for child in element.get('children', []):
-                check_figures(child, current_path, page_num)
+            children = element.get('children', [])
+            if children:
+                for child in children:
+                    check_figures_recursive(child, current_path, page_num)
+                    
+            # Special handling for table cells and other structured content
+            if tag == 'Table':
+                table_content = element.get('content', {})
+                # Check headers
+                for row in table_content.get('headers', []):
+                    for cell in row:
+                        check_figures_recursive(cell, f"{current_path}/header", page_num)
+                # Check rows
+                for row in table_content.get('rows', []):
+                    for cell in row:
+                        check_figures_recursive(cell, f"{current_path}/row", page_num)
         
+        # Start recursive check
         for element in content:
-            check_figures(element)
+            check_figures_recursive(element)
         
+        # Update validation results
         if figures:
             if figures_without_alt:
                 missing_figures = [f"Figure {num} (page {page})" for _, num, page in figures_without_alt]
@@ -793,6 +877,63 @@ class AccessibilityValidator:
             
             return bool(duplicates), duplicates
         
+        def is_cell_empty(cell: Dict) -> bool:
+            """Controlla se una cella è completamente vuota controllando ricorsivamente tutto il suo contenuto"""
+            if not isinstance(cell, dict):
+                return True
+                
+            # Controlla il testo diretto
+            has_text = bool(cell.get('text', '').strip())
+            if has_text:
+                return False
+                
+            # Controlla i figli ricorsivamente
+            children = cell.get('children', [])
+            if children:
+                return all(is_cell_empty(child) for child in children)
+                
+            return True
+
+        def count_empty_cells(table_content: Dict) -> tuple[int, List[str], List[str]]:
+            """Conta le celle vuote e restituisce (count, locations, details)"""
+            empty_cells = []
+            empty_cells_details = []
+            total_empty = 0
+            
+            def format_cell_content(cell):
+                """Formatta i dettagli del contenuto di una cella vuota"""
+                tags = []
+                if isinstance(cell, dict):
+                    tag = cell.get('tag', '')
+                    if tag:
+                        tags.append(f"{tag}")
+                        if cell.get('children'):
+                            for child in cell.get('children'):
+                                child_tag = child.get('tag', '')
+                                if child_tag:
+                                    tags.append(f"{child_tag}")
+                return f"[{' > '.join(tags)}]" if tags else "[empty]"
+            
+            # Check headers
+            for i, row in enumerate(table_content.get('headers', [])):
+                for j, cell in enumerate(row):
+                    if is_cell_empty(cell):
+                        total_empty += 1
+                        location = f"header[{i}][{j}]"
+                        empty_cells.append(location)
+                        empty_cells_details.append(f"{location} {format_cell_content(cell)}")
+            
+            # Check data rows
+            for i, row in enumerate(table_content.get('rows', [])):
+                for j, cell in enumerate(row):
+                    if is_cell_empty(cell):
+                        total_empty += 1
+                        location = f"row[{i}][{j}]"
+                        empty_cells.append(location)
+                        empty_cells_details.append(f"{location} {format_cell_content(cell)}")
+            
+            return total_empty, empty_cells, empty_cells_details
+
         def check_tables(element: Dict, path: str = "") -> None:
             tag = element.get('tag', '')
             
@@ -830,6 +971,14 @@ class AccessibilityValidator:
                     # Check if table has data rows
                     if not rows:
                         tables_without_data.append(f"Table {table_num}")
+                
+                # Check for empty cells with improved detection
+                empty_count, empty_locations, empty_details = count_empty_cells(table_content)
+                if empty_count > 0:
+                    if empty_count == 1:
+                        self.warnings.append(f"Table {table_num} has 1 empty cell at: {empty_details[0]}")
+                    else:
+                        self.warnings.append(f"Table {table_num} has {empty_count} empty cells at: {', '.join(empty_details)}")
             
             # Check children
             for child in element.get('children', []):
@@ -1252,6 +1401,79 @@ class AccessibilityValidator:
             else:
                 self.check_scores['extra_spaces'] = 50  # Alcuni problemi di spaziatura
 
+    def validate_links(self, content: List) -> None:
+        """Check for non-descriptive or raw URLs in links"""
+        if not self.is_tagged:
+            self.check_scores['links'] = 0
+            return
+            
+        problematic_links = []
+        
+        def is_problematic_link(text: str) -> tuple[bool, str]:
+            """Check if link text is problematic"""
+            import re
+            
+            # Common problematic patterns
+            patterns = {
+                r'^https?://': "starts with http:// or https://",
+                r'^www\.': "starts with www.",
+                r'\.com$|\.org$|\.net$|\.it$': "ends with domain extension",
+                r'^click here$|^here$|^link$': "non-descriptive text",
+                r'^[0-9]+$': "contains only numbers"
+            }
+            
+            for pattern, reason in patterns.items():
+                if re.search(pattern, text.lower().strip()):
+                    return True, reason
+                    
+            return False, ""
+            
+        def check_links_recursive(element: Dict, path: str = "", page_num: int = 1) -> None:
+            # Track page numbers
+            if 'Pg' in element:
+                page_num = int(element['Pg'])
+                
+            tag = element.get('tag', '')
+            current_path = f"{path}/{tag}" if path else tag
+            
+            # Check if element is a link
+            if tag == 'Link':
+                link_text = element.get('text', '').strip()
+                if link_text:
+                    is_bad, reason = is_problematic_link(link_text)
+                    if is_bad:
+                        problematic_links.append((current_path, link_text, reason, page_num))
+            
+            # Check children recursively
+            children = element.get('children', [])
+            if children:
+                for child in children:
+                    check_links_recursive(child, current_path, page_num)
+                    
+            # Special handling for table cells
+            if tag == 'Table':
+                table_content = element.get('content', {})
+                # Check headers
+                for row in table_content.get('headers', []):
+                    for cell in row:
+                        check_links_recursive(cell, f"{current_path}/header", page_num)
+                # Check rows
+                for row in table_content.get('rows', []):
+                    for cell in row:
+                        check_links_recursive(cell, f"{current_path}/row", page_num)
+        
+        # Start recursive check
+        for element in content:
+            check_links_recursive(element)
+            
+        # Update validation results
+        if problematic_links:
+            for path, text, reason, page in problematic_links:
+                self.warnings.append(f"Non-descriptive or raw URL link on page {page}: '{text}' ({reason})")
+            self.check_scores['links'] = 50
+        else:
+            self.check_scores['links'] = 100
+
     def calculate_weighted_score(self) -> float:
         """Calcola il punteggio pesato di accessibilità"""
         total_weight = sum(self.check_weights.values())
@@ -1276,6 +1498,19 @@ class AccessibilityValidator:
 
     def print_console_report(self) -> None:
         print("\n📖 Accessibility Validation Report\n")
+        
+        # Print empty elements count first
+        print("🔍 Empty Elements Count:")
+        print(f"  • Total empty elements: {self.empty_elements_count['total']}")
+        if self.empty_elements_count['paragraphs'] > 0:
+            print(f"  • Empty paragraphs: {self.empty_elements_count['paragraphs']}")
+        if self.empty_elements_count['table_cells'] > 0:
+            print(f"  • Empty table cells: {self.empty_elements_count['table_cells']}")
+        if self.empty_elements_count['headings'] > 0:
+            print(f"  • Empty headings: {self.empty_elements_count['headings']}")
+        if self.empty_elements_count['spans'] > 0:
+            print(f"  • Empty spans: {self.empty_elements_count['spans']}")
+        print()
         
         if self.successes:
             print("✅ Successes:")
@@ -1389,6 +1624,7 @@ def analyze_pdf(pdf_path: str, options: dict) -> None:
             validator.validate_excessive_underscores(simplified_json.get('content', []))
             validator.validate_spaced_capitals(simplified_json.get('content', []))
             validator.validate_extra_spaces(simplified_json.get('content', []))
+            validator.validate_links(simplified_json.get('content', []))  # Add link validation
             
             # Show validation results if requested
             if options['show_validation']:
