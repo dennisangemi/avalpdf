@@ -457,7 +457,8 @@ class AccessibilityValidator:
             'title': 15,            # Ridotto
             'language': 15,         # Ridotto
             'headings': 35,         # Aumentato significativamente
-            'figures': 2,           # Leggermente aumentato
+            'alt_text': 2,         # Nuovo peso specifico per alt text
+            'figures': 2,          # Ridotto leggermente
             'tables': 2,            # Leggermente aumentato
             'lists': 2,             # Leggermente aumentato
             'empty_elements': 1,    # Invariato
@@ -591,42 +592,85 @@ class AccessibilityValidator:
             else:
                 self.check_scores['empty_elements'] = 50
 
+    def is_complex_alt_text(self, alt_text: str) -> tuple[bool, str]:
+        """
+        Verifica se l'alt text contiene pattern problematici
+        Returns: (is_complex, reason)
+        """
+        import re
+        
+        # Verifica estensioni di file comuni
+        file_ext_pattern = r'\.(png|jpe?g|gif|bmp|tiff?|pdf|docx?|xlsx?|pptx?)$'
+        if re.search(file_ext_pattern, alt_text, re.IGNORECASE):
+            return True, "contains file extension"
+
+        # Verifica nomi file che contengono trattini, underscore o numeri
+        complex_name_pattern = r'[-_][a-zA-Z0-9]+[-_0-9]*\.'
+        if re.search(complex_name_pattern, alt_text):
+            return True, "contains complex filename"
+            
+        # Verifica se contiene "File:" o "Image:" all'inizio
+        if alt_text.startswith(("File:", "Image:")):
+            return True, "starts with 'File:' or 'Image:'"
+
+        return False, ""
+
     def validate_figures(self, content: List) -> None:
-        # Skip if document is not tagged
+        """Validate figures and their alt text"""
         if not self.is_tagged:
             self.check_scores['figures'] = 0
+            self.check_scores['alt_text'] = 0
             return
             
         figures = []
         figures_without_alt = []
+        figures_with_complex_alt = []
         
-        def check_figures(element: Dict, path: str = "") -> None:
+        def check_figures(element: Dict, path: str = "", page_num: int = 1) -> None:
             tag = element.get('tag', '')
             current_path = f"{path}/{tag}" if path else tag
             
+            # Check per il cambio pagina
+            if 'Pg' in element:
+                page_num = int(element['Pg'])
+            
             if tag == 'Figure':
-                figures.append(current_path)
+                figure_num = len(figures) + 1
+                figures.append((current_path, figure_num, page_num))
                 alt_text = element.get('text', '').strip()
                 if not alt_text:
-                    figures_without_alt.append(current_path)
+                    figures_without_alt.append((current_path, figure_num, page_num))
+                else:
+                    is_complex, reason = self.is_complex_alt_text(alt_text)
+                    if is_complex:
+                        figures_with_complex_alt.append((current_path, alt_text, reason, figure_num, page_num))
             
             # Check children
             for child in element.get('children', []):
-                check_figures(child, current_path)
+                check_figures(child, current_path, page_num)
         
         for element in content:
             check_figures(element)
         
         if figures:
             if figures_without_alt:
-                self.issues.append(f"Found {len(figures_without_alt)} figures without alt text: {', '.join(figures_without_alt)}")
+                missing_figures = [f"Figure {num} (page {page})" for _, num, page in figures_without_alt]
+                self.issues.append(f"Found {len(figures_without_alt)} figures without alt text: {', '.join(missing_figures)}")
                 self.check_scores['figures'] = 50
             else:
                 count = len(figures)
                 self.successes.append(f"Found {count} figure{'' if count == 1 else 's'} with alternative text")
                 self.check_scores['figures'] = 100
+
+            if figures_with_complex_alt:
+                for _, alt_text, reason, num, page in figures_with_complex_alt:
+                    self.warnings.append(f"Figure {num} (page {page}) has problematic alt text ({reason}): '{alt_text}'")
+                self.check_scores['alt_text'] = 50
+            else:
+                self.check_scores['alt_text'] = 100
         else:
             self.check_scores['figures'] = 0
+            self.check_scores['alt_text'] = 0
 
     def validate_heading_structure(self, content: List) -> None:
         if not self.is_tagged:
