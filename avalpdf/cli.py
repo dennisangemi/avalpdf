@@ -418,6 +418,38 @@ def print_formatted_content(element, level=0):
         print(f"{indent}{COLOR_GREEN}[P]{COLOR_RESET} > {COLOR_ORANGE}[Figure]{COLOR_RESET} {figure.get('text', '')}")
         return
 
+    # Gestione speciale per P o H con Span/Link annidati - stampa su un'unica riga
+    if (tag == 'P' or tag.startswith('H')) and children:
+        child_spans = [c for c in children if c.get('tag') in ['Span', 'Link']]
+        if child_spans:
+            # Formatta il tag principale
+            if tag == 'P':
+                tag_str = f"{COLOR_GREEN}[{tag}]{COLOR_RESET}"
+            elif tag.startswith('H'):
+                tag_str = f"{COLOR_RED}[{tag}]{COLOR_RESET}"
+            else:
+                tag_str = f"[{tag}]"
+                
+            # Formatta ogni span/link con > sulla stessa riga
+            spans_output = []
+            for child in child_spans:
+                child_tag = child.get('tag')
+                child_text = child.get('text', '')
+                if child_tag == 'Span':
+                    spans_output.append(f"> [Span] {child_text}")
+                elif child_tag == 'Link':
+                    spans_output.append(f"> [Link] {child_text}")
+            
+            # Stampa l'elemento principale e i suoi figli span/link sulla stessa riga
+            print(f"{indent}{tag_str} {' '.join(spans_output)}")
+            
+            # Stampa gli altri figli che non sono Span/Link
+            other_children = [c for c in children if c.get('tag') not in ['Span', 'Link']]
+            for child in other_children:
+                print_formatted_content(child, level + 1)
+                
+            return
+
     # Gestione tabelle
     if tag == 'Table':
         print(f"{indent}{COLOR_PURPLE}[Table]{COLOR_RESET}")
@@ -457,46 +489,7 @@ def print_formatted_content(element, level=0):
         return
 
     # Handle other elements
-    tag = element.get('tag', '')
-    text = element.get('text', '')
-    children = element.get('children', [])
-
-    if tag == 'Table':
-        print(f"{indent}{COLOR_PURPLE}[Table]{COLOR_RESET}")
-        table_content = element.get('content', {})
-        
-        # Print headers if present
-        headers = table_content.get('headers', [])
-        if headers:
-            print(f"{indent}  {COLOR_PURPLE}[Headers]{COLOR_RESET}")
-            for row in headers:
-                cells = []
-                for cell in row:
-                    if isinstance(cell, dict):
-                        cell_content = format_cell_content(cell, level + 3)
-                        cells.append(cell_content)
-                print(f"{indent}    | " + " | ".join(cells) + " |")
-
-        # Print data rows
-        rows = table_content.get('rows', [])
-        if rows:
-            print(f"{indent}  {COLOR_PURPLE}[Rows]{COLOR_RESET}")
-            for row in rows:
-                cells = []
-                for cell in row:
-                    if isinstance(cell, dict):
-                        cell_content = format_cell_content(cell, level + 3)
-                        cells.append(cell_content)
-                if cells:  # Solo stampa righe che hanno almeno una cella con contenuto
-                    print(f"{indent}    | " + " | ".join(cells) + " |")
-        return
-        
-    # Handle other elements
-    if tag == 'P':
-        tag_str = f"{COLOR_GREEN}[{tag}]{COLOR_RESET}"
-    elif tag.startswith('H'):
-        tag_str = f"{COLOR_RED}[{tag}]{COLOR_RESET}"
-    elif tag == 'Figure':
+    if tag == 'Figure':
         print(f"{indent}{COLOR_ORANGE}[Figure]{COLOR_RESET} {text}")
         if children:  # Process any nested elements
             for child in children:
@@ -516,6 +509,10 @@ def print_formatted_content(element, level=0):
                 for item in element.get('items'):
                     print(f"{indent}  {item}")
         return
+    elif tag == 'P':
+        tag_str = f"{COLOR_GREEN}[{tag}]{COLOR_RESET}"
+    elif tag.startswith('H'):
+        tag_str = f"{COLOR_RED}[{tag}]{COLOR_RESET}"
     else:
         tag_str = f"[{tag}]"
 
@@ -545,7 +542,32 @@ def format_cell_content(element, level=0) -> str:
         # Per P con una sola figura annidata, mostra entrambi i tag
         figure = children[0]
         return f"{COLOR_GREEN}[P]{COLOR_RESET} > {COLOR_ORANGE}[Figure]{COLOR_RESET} {figure.get('text', '')}"
-        
+    
+    # Handle Span in P or H tags - use > syntax
+    if children and (tag == 'P' or tag.startswith('H')):
+        child_spans = [c for c in children if c.get('tag') in ['Span', 'Link']]
+        if child_spans:
+            # If we have direct spans or links, display them with > syntax
+            if tag == 'P':
+                tag_str = f"{COLOR_GREEN}[{tag}]{COLOR_RESET}"
+            elif tag.startswith('H'):
+                tag_str = f"{COLOR_RED}[{tag}]{COLOR_RESET}"
+            else:
+                tag_str = f"[{tag}]"
+                
+            parts.append(tag_str)
+            
+            # Add each span/link with > syntax
+            for child in child_spans:
+                child_tag = child.get('tag')
+                child_text = child.get('text', '').strip() 
+                if child_tag == 'Span':
+                    parts.append(f"> [Span] {child_text}")
+                elif child_tag == 'Link':
+                    parts.append(f"> [Link] {child_text}")
+            
+            return ' '.join(parts)
+            
     # Gestisci altri tag
     if tag == 'Figure':
         parts.append(f"{COLOR_ORANGE}[Figure]{COLOR_RESET}")
