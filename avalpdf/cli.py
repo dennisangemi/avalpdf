@@ -548,6 +548,28 @@ def is_only_whitespace(text: str) -> bool:
     """Helper function to check if text contains only whitespace characters"""
     return bool(text and all(c in ' \t\n\r' for c in text))
 
+def is_element_empty(element: Dict) -> bool:
+    """Verifica ricorsivamente se un elemento e tutti i suoi contenuti sono vuoti"""
+    if not isinstance(element, dict):
+        return True
+        
+    # Controlla il testo diretto
+    has_text = bool(element.get('text', '').strip())
+    if has_text:
+        return False
+        
+    # Controlla se è un'immagine (tag Figure)
+    if element.get('tag') == 'Figure':
+        return False
+        
+    # Controlla i figli ricorsivamente, compresi gli Span
+    children = element.get('children', [])
+    if children:
+        return all(is_element_empty(child) for child in children)
+        
+    # Se non ci sono né testo diretto né figli, l'elemento è vuoto
+    return True
+
 class AccessibilityValidator:
     def __init__(self):
         self.issues = []
@@ -769,8 +791,8 @@ class AccessibilityValidator:
             if tag.startswith('H'):
                 try:
                     level = int(tag[1:])
-                    text = element.get('text', '').strip()
-                    if not text:
+                    # Usa is_element_empty per verificare se il titolo è vuoto
+                    if is_element_empty(element):
                         empty_headings.append(level)
                     else:
                         headings.append(level)
@@ -802,15 +824,16 @@ class AccessibilityValidator:
             return
             
         if headings:  # Verifichiamo la struttura solo se ci sono headings non vuoti
-            # Check if first heading is H1
-            if headings[0] != 1:
+            # Controlla il livello del primo heading
+            if headings[0] > 1:
                 self.issues.append(f"First heading is H{headings[0]}, should be H1")
                 self.check_scores['headings'] = max(self.check_scores['headings'], 40)
             
-            # Check heading hierarchy
-            prev_level = 1
+            # Controlla la gerarchia dei titoli
+            prev_level = headings[0]
             hierarchy_issues = []
-            for level in headings:
+            
+            for level in headings[1:]:  # Parti dal secondo titolo
                 if level > prev_level + 1:
                     hierarchy_issues.append(f"H{prev_level} followed by H{level}")
                 prev_level = level
@@ -877,22 +900,47 @@ class AccessibilityValidator:
             
             return bool(duplicates), duplicates
         
-        def is_cell_empty(cell: Dict) -> bool:
-            """Controlla se una cella è completamente vuota controllando ricorsivamente tutto il suo contenuto"""
-            if not isinstance(cell, dict):
+        def is_element_empty(element: Dict) -> bool:
+            """Verifica ricorsivamente se un elemento e tutti i suoi contenuti sono vuoti"""
+            if not isinstance(element, dict):
                 return True
                 
             # Controlla il testo diretto
-            has_text = bool(cell.get('text', '').strip())
+            has_text = bool(element.get('text', '').strip())
             if has_text:
                 return False
                 
-            # Controlla i figli ricorsivamente
-            children = cell.get('children', [])
-            if children:
-                return all(is_cell_empty(child) for child in children)
+            # Controlla se è un'immagine (tag Figure)
+            if element.get('tag') == 'Figure':
+                return False
                 
+            # Controlla contenuto tabella
+            if element.get('tag') == 'Table':
+                table_content = element.get('content', {})
+                # Controlla headers e rows
+                for section in ['headers', 'rows']:
+                    for row in table_content.get(section, []):
+                        for cell in row:
+                            if not is_element_empty(cell):
+                                return False
+                return True
+                
+            # Controlla contenuto liste
+            if element.get('tag') == 'L':
+                items = element.get('items', [])
+                return all(not item.strip() for item in items)
+                
+            # Controlla ricorsivamente i figli, compresi gli Span
+            children = element.get('children', [])
+            if children:
+                return all(is_element_empty(child) for child in children)
+                
+            # Se non ci sono né testo diretto né figli, l'elemento è vuoto
             return True
+
+        def is_cell_empty(cell: Dict) -> bool:
+            """Controlla se una cella è completamente vuota"""
+            return is_element_empty(cell)
 
         def count_empty_cells(table_content: Dict) -> tuple[int, List[str], List[str]]:
             """Conta le celle vuote e restituisce (count, locations, details)"""
@@ -1486,6 +1534,11 @@ class AccessibilityValidator:
 
     def calculate_weighted_score(self) -> float:
         """Calcola il punteggio pesato di accessibilità"""
+        # Se non ci sono issues né warnings, il punteggio è 100
+        if not self.issues and not self.warnings and not any(value > 0 for value in self.empty_elements_count.values()):
+            return 100.00
+            
+        # Altrimenti calcola il punteggio pesato
         total_weight = sum(self.check_weights.values())
         weighted_sum = sum(
             self.check_weights[check] * self.check_scores[check]

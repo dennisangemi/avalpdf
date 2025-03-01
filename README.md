@@ -10,12 +10,13 @@ A command-line tool for validating PDF accessibility, analyzing document structu
   - Document tags and metadata:
     - Document tagging status
     - Title presence
-    - Language declaration
+    - Language declaration (Italian)
   - Heading hierarchy:
     - H1 presence
     - Correct heading levels sequence
   - Figure alt text:
     - Missing alternative text detection
+    - Complex or problematic alt text patterns
   - Tables structure:
     - Header presence and proper structure
     - Empty cells detection
@@ -27,16 +28,27 @@ A command-line tool for validating PDF accessibility, analyzing document structu
     - Detection of untagged lists (consecutive paragraphs with bullets/numbers)
     - Misused list types (numbered items in unordered lists)
     - List hierarchy consistency
+  - Links:
+    - Detection of non-descriptive links
+    - Raw URL text warnings
+    - Email and institutional domain exceptions
   - Formatting issues:
     - Excessive underscores (used for underlining)
     - Spaced capital letters (like "T E S T")
-    - Extra spaces used for layout
+    - Extra spaces used for layout (3+ consecutive spaces)
   - Empty elements:
     - Empty paragraphs
     - Whitespace-only elements
     - Empty headings
+    - Empty spans
     - Empty table cells
-- Multiple output formats (JSON, console reports)
+- Multiple output formats:
+  - Detailed JSON structure
+  - Simplified JSON
+  - Accessibility validation report
+  - Console reports with color-coded structure visualization
+- Weighted scoring system based on accessibility criteria
+- Detailed issue categorization (issues, warnings, successes)
 
 ## Installation
 
