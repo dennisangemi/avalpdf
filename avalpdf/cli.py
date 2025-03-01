@@ -266,6 +266,35 @@ def process_table_cell(cell):
                                             "text": child.get('Alt', '') or ""
                                         })
                                         has_content = True
+                                    elif child_tag == 'Span' or child_tag == 'Link':
+                                        # Handle special tags with nested content
+                                        span_content = []
+                                        span_children = []
+                                        
+                                        # Process Span's content and children
+                                        for span_child in child.get('K', []):
+                                            if isinstance(span_child, dict):
+                                                if 'Content' in span_child:
+                                                    span_texts = extract_text_content(span_child['Content'])
+                                                    if span_texts:
+                                                        span_content.extend(span_texts)
+                                                else:
+                                                    # Recursively process deeper nested elements
+                                                    child_results = extract_content(span_child)
+                                                    if child_results:
+                                                        span_children.extend(child_results)
+                                        
+                                        span_text = ''.join(span_content)
+                                        span_element = {
+                                            "tag": child_tag,
+                                            "text": span_text
+                                        }
+                                        
+                                        if span_children:
+                                            span_element["children"] = span_children
+                                            
+                                        nested_elements.append(span_element)
+                                        has_content = True
                                     elif 'Content' in child:
                                         fragments = extract_text_content(child['Content'])
                                         text_fragments.extend(fragments)
@@ -577,21 +606,20 @@ class AccessibilityValidator:
         self.successes = []
         self.is_tagged = False
         
-        # Ribilanciamento dei pesi per dare più importanza alla struttura dei titoli
         self.check_weights = {
-            'tagging': 25,          # Ridotto per dare più peso ai titoli
-            'title': 15,            # Ridotto
-            'language': 15,         # Ridotto
-            'headings': 35,         # Aumentato significativamente
-            'alt_text': 2,         # Nuovo peso specifico per alt text
-            'figures': 2,          # Ridotto leggermente
-            'tables': 2,            # Leggermente aumentato
-            'lists': 2,             # Leggermente aumentato
-            'empty_elements': 1,    # Invariato
-            'underlining': 1,       # Invariato
-            'spacing': 1,           # Invariato
-            'extra_spaces': 1,       # Invariato
-            'links': 2,  # Add new weight for links
+            'tagging': 35,          # Aumentato perché fondamentale
+            'title': 20,           # Aumentato perché molto importante
+            'language': 20,        # Aumentato perché molto importante
+            'headings': 5,         # Ridotto perché un titolo vuoto è meno grave
+            'alt_text': 4,         # Invariato
+            'figures': 4,          # Invariato
+            'tables': 4,           # Invariato
+            'lists': 4,            # Invariato
+            'empty_elements': 1,   # Ridotto al minimo perché meno importante
+            'underlining': 1,      # Invariato
+            'spacing': 1,          # Invariato
+            'extra_spaces': 0.5,   # Ridotto perché poco rilevante
+            'links': 0.5          # Ridotto perché poco rilevante
         }
         self.check_scores = {k: 0 for k in self.check_weights}
         self.empty_elements_count = {
