@@ -2,3 +2,5 @@ dist/
 *.egg-info/
 .venv/
 build
+ga.pdf
+c_bk.py

@@ -52,8 +52,25 @@ A command-line tool for validating PDF accessibility, analyzing document structu
 
 ## Installation
 
+Using `pip`
 ```bash
 pip install avalpdf
+```
+
+Or `uv`
+```bash
+uv tool install avalpdf
+```
+
+### Updates
+Using `pip`
+```bash
+pip install avalpdf --upgrade
+```
+
+Or `uv`
+```bash
+uv tool install avalpdf --upgrade
 ```
 
 ## Usage
