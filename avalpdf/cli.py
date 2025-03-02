@@ -88,26 +88,60 @@ def extract_content(element, level=0):
                     'headers': [],
                     'rows': []
                 }
+                
+                # Miglioriamo l'estrazione di tabelle per gestire correttamente intestazioni di riga e colonna
                 if 'K' in element:
-                    for row in element['K']:
-                        if row.get('S') == 'TR':
-                            header_row = []
-                            data_row = []
-                            for cell in row.get('K', []):
+                    # Prima passiamo per determinare il numero di colonne e righe
+                    max_cols = 0
+                    thead_rows = []
+                    tbody_rows = []
+                    
+                    # Separa le righe di intestazione e corpo
+                    for section in element['K']:
+                        if section.get('S') == 'THead':
+                            for row in section.get('K', []):
+                                if row.get('S') == 'TR':
+                                    thead_rows.append(row)
+                        elif section.get('S') == 'TBody':
+                            for row in section.get('K', []):
+                                if row.get('S') == 'TR':
+                                    tbody_rows.append(row)
+                    
+                    # Processa le righe di intestazione
+                    for row in thead_rows:
+                        header_row = []
+                        for cell in row.get('K', []):
+                            cell_content = process_table_cell(cell)
+                            header_row.extend(cell_content)
+                        if header_row:
+                            table_content['headers'].append(header_row)
+                            max_cols = max(max_cols, len(header_row))
+                    
+                    # Processa le righe di corpo
+                    for row in tbody_rows:
+                        data_row = []
+                        has_row_header = False
+                        row_header = None
+                        
+                        # Cerca prima un'intestazione di riga
+                        for cell in row.get('K', []):
+                            if cell.get('S') == 'TH':
+                                has_row_header = True
                                 cell_content = process_table_cell(cell)
-                                cell_type = cell.get('S', '')
-                                
                                 if cell_content:
-                                    if cell_type == 'TH':
-                                        header_row.extend(cell_content)
-                                    elif cell_type == 'TD':
-                                        data_row.extend(cell_content)
-                            
-                            # Add row to appropriate section
-                            if header_row:
-                                table_content['headers'].append(header_row)
-                            if data_row:
-                                table_content['rows'].append(data_row)
+                                    row_header = cell_content[0]
+                                break
+                        
+                        # Processa tutte le celle
+                        for cell in row.get('K', []):
+                            cell_content = process_table_cell(cell)
+                            # Se è un'intestazione di riga, aggiungiamola con un indicatore
+                            if cell.get('S') == 'TH' and has_row_header:
+                                cell_content[0]['isRowHeader'] = True
+                            data_row.extend(cell_content)
+                        
+                        if data_row:
+                            table_content['rows'].append(data_row)
                 
                 results.append({
                     "tag": "Table",
@@ -235,6 +269,12 @@ def process_table_cell(cell):
     
     if cell_type in ['TD', 'TH']:
         has_content = False
+        cell_result = {"tag": "P", "text": ""}
+        
+        # Aggiungiamo un indicatore per le celle di intestazione
+        if cell_type == 'TH':
+            cell_result["isHeader"] = True
+        
         for k in cell.get('K', []):
             # Process nested elements
             if isinstance(k, dict):
@@ -313,11 +353,17 @@ def process_table_cell(cell):
                                 content["children"] = nested_elements
                                 has_content = True
                                 
+                        # Preserviamo l'informazione se è un'intestazione
+                        if cell_type == 'TH':
+                            content["isHeader"] = True
+                            
                         results.append(content)
         
-        # Se non è stato trovato alcun contenuto, aggiungi un elemento P vuoto
+        # Se non è stato trovato alcun contenuto, aggiungi un elemento P vuoto (con flag se è header)
         if not results:
-            results.append({"tag": "P", "text": ""})
+            if cell_type == 'TH':
+                cell_result["isHeader"] = True
+            results.append(cell_result)
     
     return results
 
@@ -450,42 +496,87 @@ def print_formatted_content(element, level=0):
                 
             return
 
-    # Gestione tabelle
+    # Gestione tabelle migliorata con indicazione di TH e TD
     if tag == 'Table':
         print(f"{indent}{COLOR_PURPLE}[Table]{COLOR_RESET}")
         table_content = element.get('content', {})
         
-        # Print headers if present
+        # Ottieni le intestazioni e le righe per calcolare la larghezza di colonna ottimale
         headers = table_content.get('headers', [])
+        rows = table_content.get('rows', [])
+        
+        # Calcola la larghezza massima per ogni colonna
+        all_rows = headers + rows
+        max_columns = max([len(row) for row in all_rows]) if all_rows else 0
+        column_widths = [0] * max_columns
+        
+        # Determina la larghezza ideale per ogni colonna basata sul contenuto
+        for row in all_rows:
+            for i, cell in enumerate(row):
+                if i < max_columns:  # Evita errori di indice
+                    if isinstance(cell, dict):
+                        # Calcola la lunghezza del testo visualizzato senza i codici ANSI
+                        text = cell.get('text', '').strip()
+                        text_length = len(text)
+                        
+                        # Aggiungi una lunghezza extra per indicatori di TH/TD e tag annidati
+                        cell_type_tag = "[TH] > " if cell.get('isHeader', False) or cell.get('isRowHeader', False) else "[TD] > "
+                        tag_length = len(cell_type_tag) + 5  # [TH] > [P] è più lungo di [P]
+                        total_length = text_length + tag_length
+                        
+                        column_widths[i] = max(column_widths[i], min(total_length, 50))  # Limita a 50 caratteri per leggibilità
+        
+        # Funzione per stampare una riga formattata con larghezze colonne
+        def print_table_row(row, is_header_row=False):
+            cells = []
+            for i, cell in enumerate(row):
+                if isinstance(cell, dict):
+                    # Prepara il contenuto della cella con formattazione migliorata
+                    is_header = cell.get('isHeader', False) or cell.get('isRowHeader', False) or is_header_row
+                    
+                    # Mostra sempre il tag TH o TD appropriato
+                    cell_type_tag = f"{COLOR_RED}[TH]{COLOR_RESET} > " if is_header else f"[TD] > "
+                    cell_content = format_cell_content_with_type(cell, show_cell_type=False).strip()
+                    
+                    # Combina il tag di cella con il contenuto
+                    if cell_content:
+                        content = f"{cell_type_tag}{cell_content}"
+                    else:
+                        content = f"{cell_type_tag}{COLOR_GREEN}[Empty]{COLOR_RESET}"
+                    
+                    # Aggiungi padding e tronca se necessario
+                    width = column_widths[i] if i < len(column_widths) else 15
+                    # Non consideriamo i codici ANSI nel calcolo della lunghezza
+                    visible_length = len(content.replace(COLOR_GREEN, "").replace(COLOR_RED, "").
+                                         replace(COLOR_ORANGE, "").replace(COLOR_PURPLE, "").
+                                         replace(COLOR_BLUE, "").replace(COLOR_RESET, ""))
+                    
+                    # Spazio aggiuntivo per i codici di colore
+                    color_padding = len(content) - visible_length
+                    padded_content = content.ljust(width + color_padding)
+                    
+                    cells.append(padded_content)
+            
+            if cells:
+                print(f"{indent}    | " + " | ".join(cells) + " |")
+            
+        # Stampa le intestazioni di colonna
         if headers:
             print(f"{indent}  {COLOR_PURPLE}[Headers]{COLOR_RESET}")
             for row in headers:
-                cells = []
-                for cell in row:
-                    if isinstance(cell, dict):
-                        cell_content = format_cell_content(cell).strip()
-                        if cell_content:
-                            cells.append(cell_content)
-                        else:
-                            cells.append(f"{COLOR_GREEN}[Empty]{COLOR_RESET}")
-                if cells:
-                    print(f"{indent}    | " + " | ".join(cells) + " |")
-
-        # Print data rows
-        rows = table_content.get('rows', [])
+                print_table_row(row, True)
+            # Aggiungi un separatore visivo tra intestazioni e dati
+            separator = []
+            for width in column_widths:
+                separator.append("-" * width)
+            print(f"{indent}    +-" + "-+-".join(separator) + "-+")
+        
+        # Stampa le righe di dati, evidenziando le intestazioni di riga
         if rows:
             print(f"{indent}  {COLOR_PURPLE}[Rows]{COLOR_RESET}")
             for row in rows:
-                cells = []
-                for cell in row:
-                    if isinstance(cell, dict):
-                        cell_content = format_cell_content(cell).strip()
-                        if cell_content:
-                            cells.append(cell_content)
-                        else:
-                            cells.append(f"{COLOR_GREEN}[Empty]{COLOR_RESET}")
-                if cells:
-                    print(f"{indent}    | " + " | ".join(cells) + " |")
+                print_table_row(row)
+        
         return
 
     # Handle other elements
@@ -527,73 +618,70 @@ def print_formatted_content(element, level=0):
         for child in children:
             print_formatted_content(child, level + 1)
 
-def format_cell_content(element, level=0) -> str:
-    """Format cell content recursively including nested elements"""
+def format_cell_content_with_type(element, level=0, show_cell_type=True) -> str:
+    """Format cell content recursively including cell type (TH/TD) and nested elements"""
     if not isinstance(element, dict):
         return ""
         
     tag = element.get('tag', '')
     text = element.get('text', '').strip()
     children = element.get('children', [])
+    is_header = element.get('isHeader', False) or element.get('isRowHeader', False)
     
     parts = []
     
+    # Aggiungi il tag di tipo cella (TH o TD) se richiesto
+    if show_cell_type:
+        if is_header:
+            parts.append(f"{COLOR_RED}[TH]{COLOR_RESET} > ")
+        else:
+            parts.append("[TD] > ")
+    
+    # Casi speciali per elementi annidati
     if tag == 'P' and len(children) == 1 and children[0].get('tag') == 'Figure':
         # Per P con una sola figura annidata, mostra entrambi i tag
         figure = children[0]
-        return f"{COLOR_GREEN}[P]{COLOR_RESET} > {COLOR_ORANGE}[Figure]{COLOR_RESET} {figure.get('text', '')}"
+        figure_part = f"{COLOR_GREEN}[P]{COLOR_RESET} > {COLOR_ORANGE}[Figure]{COLOR_RESET} {figure.get('text', '')}"
+        parts.append(figure_part)
+        return ''.join(parts)
     
-    # Handle Span in P or H tags - use > syntax
-    if children and (tag == 'P' or tag.startswith('H')):
+    # Aggiungi il tag dell'elemento
+    if tag == 'Figure':
+        parts.append(f"{COLOR_ORANGE}[{tag}]{COLOR_RESET}")
+    elif tag.startswith('H'):
+        parts.append(f"{COLOR_RED}[{tag}]{COLOR_RESET}")
+    elif tag == 'P':
+        parts.append(f"{COLOR_GREEN}[{tag}]{COLOR_RESET}")
+    else:
+        parts.append(f"[{tag}]")
+    
+    # Aggiungi il testo dell'elemento
+    if text:
+        parts.append(text)
+    
+    # Gestione speciale per tag annidati
+    if children:
+        # Handle Span in P or H tags - use > syntax
         child_spans = [c for c in children if c.get('tag') in ['Span', 'Link']]
         if child_spans:
-            # If we have direct spans or links, display them with > syntax
-            if tag == 'P':
-                tag_str = f"{COLOR_GREEN}[{tag}]{COLOR_RESET}"
-            elif tag.startswith('H'):
-                tag_str = f"{COLOR_RED}[{tag}]{COLOR_RESET}"
-            else:
-                tag_str = f"[{tag}]"
-                
-            parts.append(tag_str)
-            
-            # Add each span/link with > syntax
             for child in child_spans:
                 child_tag = child.get('tag')
                 child_text = child.get('text', '').strip() 
-                if child_tag == 'Span':
-                    parts.append(f"> [Span] {child_text}")
-                elif child_tag == 'Link':
-                    parts.append(f"> [Link] {child_text}")
-            
-            return ' '.join(parts)
-            
-    # Gestisci altri tag
-    if tag == 'Figure':
-        parts.append(f"{COLOR_ORANGE}[Figure]{COLOR_RESET}")
-        if text:
-            parts.append(text)
-    elif tag.startswith('H'):
-        parts.append(f"{COLOR_RED}[{tag}]{COLOR_RESET}")
-        if text:
-            parts.append(text)
-    elif tag == 'P':
-        parts.append(f"{COLOR_GREEN}[{tag}]{COLOR_RESET}")
-        if text:
-            parts.append(text)
-    else:
-        parts.append(f"[{tag}]")
-        if text:
-            parts.append(text)
-            
-    # Processa i figli ricorsivamente
-    if children:
-        for child in children:
-            child_content = format_cell_content(child, level + 1)
-            if child_content:
-                parts.append(f"> {child_content}")
-                
+                if child_text:
+                    parts.append(f"> [{child_tag}] {child_text}")
+        
+        # For other nested elements, add a compact representation
+        other_children = [c for c in children if c.get('tag') not in ['Span', 'Link']]
+        if other_children:
+            nested_tags = [f"+{c.get('tag')}" for c in other_children]
+            if nested_tags:
+                parts.append(f"[{' '.join(nested_tags)}]")
+    
     return ' '.join(parts)
+
+# Modifica la funzione di formato celle originale per utilizzare la nuova versione
+def format_cell_content(element, level=0) -> str:
+    return format_cell_content_with_type(element, level, show_cell_type=True)
 
 def is_only_whitespace(text: str) -> bool:
     """Helper function to check if text contains only whitespace characters"""
@@ -910,6 +998,7 @@ class AccessibilityValidator:
         tables_with_multiple_header_rows = []
         tables_without_data = []
         
+        # Migliorata per rilevare intestazioni sia di riga che di colonna
         def is_table_completely_empty(headers, rows) -> bool:
             # Check if all headers are empty
             all_headers_empty = all(
@@ -1041,6 +1130,13 @@ class AccessibilityValidator:
                 headers = table_content.get('headers', [])
                 rows = table_content.get('rows', [])
                 
+                # Verifica se ci sono intestazioni di riga (celle con isHeader o isRowHeader = True)
+                has_row_headers = any(
+                    any(isinstance(cell, dict) and (cell.get('isHeader', False) or cell.get('isRowHeader', False)) 
+                        for cell in row)
+                    for row in rows
+                )
+                
                 # First check if table is structurally empty
                 if not headers and not rows:
                     empty_tables.append(f"Table {table_num}")
@@ -1051,8 +1147,8 @@ class AccessibilityValidator:
                 else:
                     tables.append(f"Table {table_num}")
                     
-                    # Check if table has headers
-                    if not headers:
+                    # Check if table has headers (ora considerando anche le intestazioni di riga)
+                    if not headers and not has_row_headers:
                         tables_without_headers.append(f"Table {table_num}")
                     else:
                         # Check number of header rows
