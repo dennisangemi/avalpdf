@@ -117,16 +117,17 @@ def analyze_pdf(pdf_path: str, options: dict) -> None:
         sys.exit(1)
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='PDF Analysis Tool: Convert to JSON and validate accessibility',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
+    try:
+        parser = argparse.ArgumentParser(
+            description='PDF Analysis Tool: Convert to JSON and validate accessibility',
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog="""
 Examples:
   Basic usage (shows full analysis by default)
   avalpdf document.pdf
   
-  Analyze remote PDF via URL
-  avalpdf https://example.com/document.pdf
+  Analyze remote PDF via URL (use quotes for URLs with special characters)
+  avalpdf "https://example.com/document.pdf?param=value"
   
   Save reports to specific directory
   avalpdf document.pdf -o /path/to/output --report --simple
@@ -134,63 +135,77 @@ Examples:
   Save all files without console output
   avalpdf document.pdf --full --simple --report --quiet
 """
-    )
-    
-    parser.add_argument('input', help='Input PDF file or URL')
-    parser.add_argument('--output-dir', '-o', help='Output directory for JSON files')
-    
-    # File output options
-    parser.add_argument('--full', action='store_true', help='Save full JSON output')
-    parser.add_argument('--simple', action='store_true', help='Save simplified JSON output')
-    parser.add_argument('--report', action='store_true', help='Save validation report')
-    
-    # Display options
-    parser.add_argument('--show-structure', action='store_true', help='Show document structure in console')
-    parser.add_argument('--show-validation', action='store_true', help='Show validation results in console')
-    parser.add_argument('--quiet', '-q', action='store_true', help='Suppress all console output except errors')
-    
-    args = parser.parse_args()
-    
-    try:
-        # Handle URL input
-        if is_url(args.input):
-            if not args.quiet:
-                print("📥 Connecting to remote source...", file=sys.stderr)
-            input_path = download_pdf(args.input)
-            cleanup_needed = True
-        else:
-            # Handle local file
-            input_path = Path(args.input)
-            cleanup_needed = False
+        )
+        
+        parser.add_argument('input', help='Input PDF file or URL (use quotes for URLs with special characters)')
+        parser.add_argument('--output-dir', '-o', help='Output directory for JSON files')
+        parser.add_argument('--full', action='store_true', help='Save full JSON output')
+        parser.add_argument('--simple', action='store_true', help='Save simplified JSON output')
+        parser.add_argument('--report', action='store_true', help='Save validation report')
+        parser.add_argument('--show-structure', action='store_true', help='Show document structure in console')
+        parser.add_argument('--show-validation', action='store_true', help='Show validation results in console')
+        parser.add_argument('--quiet', '-q', action='store_true', help='Suppress all console output except errors')
+        
+        # Parse arguments normally, removing the special URL handling
+        args = parser.parse_args()
+        
+        input_path = None
+        cleanup_needed = False
+        
+        try:
+            # Handle URL input
+            if is_url(args.input):
+                if not args.quiet:
+                    print("📥 Connecting to remote source...", file=sys.stderr, flush=True)
+                input_path = download_pdf(args.input)
+                cleanup_needed = True
+            else:
+                input_path = Path(args.input)
+                cleanup_needed = False
 
-        if not input_path.is_file():
-            print(f"❌ Error: Input file '{args.input}' does not exist", file=sys.stderr)
-            sys.exit(1)
-        
-        # If no display options specified, enable both structure and validation display
-        show_structure = args.show_structure
-        show_validation = args.show_validation
-        if not any([args.show_structure, args.show_validation, args.quiet]):
-            show_structure = True
-            show_validation = True
-        
-        # Prepare options dictionary
-        options = {
-            'output_dir': args.output_dir,
-            'save_full': args.full,
-            'save_simple': args.simple,
-            'save_report': args.report,
-            'show_structure': show_structure,
-            'show_validation': show_validation,
-            'quiet': args.quiet
-        }
-        
-        analyze_pdf(str(input_path), options)
-
-        # Cleanup temporary file if needed
-        if cleanup_needed:
-            input_path.unlink()
+            if not input_path or not input_path.is_file():
+                print(f"❌ Error: Input file '{args.input}' does not exist", file=sys.stderr)
+                sys.exit(1)
             
+            # If no display options specified, enable both structure and validation display
+            show_structure = args.show_structure
+            show_validation = args.show_validation
+            if not any([args.show_structure, args.show_validation, args.quiet]):
+                show_structure = True
+                show_validation = True
+            
+            # Prepare options dictionary
+            options = {
+                'output_dir': args.output_dir,
+                'save_full': args.full,
+                'save_simple': args.simple,
+                'save_report': args.report,
+                'show_structure': show_structure,
+                'show_validation': show_validation,
+                'quiet': args.quiet
+            }
+            
+            analyze_pdf(str(input_path), options)
+
+        except Exception as e:
+            print(f"❌ Error: {str(e)}", file=sys.stderr, flush=True)
+            if cleanup_needed and input_path and input_path.exists():
+                try:
+                    input_path.unlink()
+                except:
+                    pass
+            sys.exit(1)
+        finally:
+            if cleanup_needed and input_path and input_path.exists():
+                try:
+                    input_path.unlink()
+                except:
+                    pass
+            sys.exit(0)
+
+    except KeyboardInterrupt:
+        print("\n⚠️ Operation cancelled by user", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
         print(f"❌ Error: {str(e)}", file=sys.stderr)
         sys.exit(1)

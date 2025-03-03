@@ -15,7 +15,8 @@ setup(
     url="https://github.com/dennisangemi/avalpdf",
     packages=find_packages(),
     install_requires=[
-        'pdfix-sdk'
+        'pdfix-sdk',
+        'requests'
     ],
     entry_points={
         'console_scripts': [
