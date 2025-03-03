@@ -18,6 +18,7 @@ class AccessibilityValidator:
             'figures': 4,          # Invariato
             'tables': 4,           # Invariato
             'lists': 4,            # Invariato
+            'consecutive_lists': 2,    # Nuovo peso per il check delle liste consecutive
             'empty_elements': 1,   # Ridotto al minimo perché meno importante
             'underlining': 1,      # Invariato
             'spacing': 1,          # Invariato
@@ -970,6 +971,92 @@ class AccessibilityValidator:
             self.check_scores['links'] = 50
         else:
             self.check_scores['links'] = 100
+
+    def validate_consecutive_lists(self, content: List) -> None:
+        """Controlla se ci sono liste dello stesso tipo consecutive che potrebbero essere unite"""
+        if not self.is_tagged:
+            self.check_scores['consecutive_lists'] = 0
+            return
+
+        def find_consecutive_lists(elements: List, path: str = "", page_num: int = 1, list_counter: List[int] = [0]) -> None:
+            consecutive = []
+            
+            # Track page changes
+            if isinstance(elements, dict) and 'Pg' in elements:
+                page_num = int(elements['Pg'])
+            
+            for i in range(len(elements)):
+                current = elements[i]
+                
+                # Update page number if present
+                if isinstance(current, dict) and 'Pg' in current:
+                    page_num = int(current['Pg'])
+                
+                if current.get('tag') == 'L':
+                    list_counter[0] += 1  # Incrementa il contatore delle liste
+                    if consecutive and consecutive[-1]['type'] == current.get('ordered', False):
+                        consecutive.append({
+                            'list_num': list_counter[0],
+                            'page': page_num,
+                            'type': current.get('ordered', False),
+                            'items': len(current.get('items', []))
+                        })
+                    else:
+                        # Se abbiamo trovato una sequenza, la segnaliamo
+                        if len(consecutive) > 1:
+                            list_type = "ordered" if consecutive[0]['type'] else "unordered"
+                            list_nums = [f"list {item['list_num']}" for item in consecutive]
+                            items_count = [item['items'] for item in consecutive]
+                            self.warnings.append(
+                                f"Found {len(consecutive)} consecutive {list_type} lists that could be merged into one "
+                                f"(Page {consecutive[0]['page']}, {', '.join(list_nums)}). "
+                                f"Items per list: {items_count}"
+                            )
+                        consecutive = [{
+                            'list_num': list_counter[0],
+                            'page': page_num,
+                            'type': current.get('ordered', False),
+                            'items': len(current.get('items', []))
+                        }]
+                else:
+                    # Verifica le liste consecutive trovate finora
+                    if len(consecutive) > 1:
+                        list_type = "ordered" if consecutive[0]['type'] else "unordered"
+                        list_nums = [f"list {item['list_num']}" for item in consecutive]
+                        items_count = [item['items'] for item in consecutive]
+                        self.warnings.append(
+                            f"Found {len(consecutive)} consecutive {list_type} lists that could be merged into one "
+                            f"(page {consecutive[0]['page']}, {', '.join(list_nums)}). "
+                            f"Items per list: {items_count}"
+                        )
+                    consecutive = []
+                
+                # Controlla ricorsivamente i figli
+                if isinstance(current, dict) and current.get('children'):
+                    find_consecutive_lists(current.get('children'), 
+                                        f"{path}/{current.get('tag')}", 
+                                        page_num,
+                                        list_counter)
+            
+            # Verifica finale per l'ultima sequenza
+            if len(consecutive) > 1:
+                list_type = "ordered" if consecutive[0]['type'] else "unordered"
+                list_nums = [f"list {item['list_num']}" for item in consecutive]
+                items_count = [item['items'] for item in consecutive]
+                self.warnings.append(
+                    f"Found {len(consecutive)} consecutive {list_type} lists that could be merged into one "
+                    f"(page {consecutive[0]['page']}, {', '.join(list_nums)}). "
+                    f"Items per list: {items_count}"
+                )
+
+        # Inizializza il contatore delle liste
+        list_counter = [0]
+        find_consecutive_lists(content, list_counter=list_counter)
+        
+        if not any("consecutive" in w for w in self.warnings):
+            self.check_scores['consecutive_lists'] = 100
+        else:
+            self.check_scores['consecutive_lists'] = 50
 
     def calculate_weighted_score(self) -> float:
         """Calcola il punteggio pesato di accessibilità"""

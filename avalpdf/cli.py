@@ -91,7 +91,7 @@ def analyze_pdf(pdf_path: str, options: dict) -> None:
             validator.validate_possible_unordered_lists(simplified_json.get('content', []))  # Add this
             validator.validate_possible_ordered_lists(simplified_json.get('content', []))    # Add this
             validator.validate_misused_unordered_lists(simplified_json.get('content', []))  # Add this
-            # Aggiungi i nuovi validatori
+            validator.validate_consecutive_lists(simplified_json.get('content', []))  # Aggiunta questa riga
             validator.validate_excessive_underscores(simplified_json.get('content', []))
             validator.validate_spaced_capitals(simplified_json.get('content', []))
             validator.validate_extra_spaces(simplified_json.get('content', []))
