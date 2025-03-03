@@ -1060,11 +1060,20 @@ class AccessibilityValidator:
 
     def calculate_weighted_score(self) -> float:
         """Calcola il punteggio pesato di accessibilità"""
-        # Se non ci sono issues né warnings, il punteggio è 100
+        # Se non ci sono issues né warnings e nessun elemento vuoto, il punteggio è 100
         if not self.issues and not self.warnings and not any(value > 0 for value in self.empty_elements_count.values()):
             return 100.00
-            
-        # Altrimenti calcola il punteggio pesato
+
+        # Se non ci sono issues né warnings ma ci sono pochi elementi vuoti (1-2),
+        # il punteggio dovrebbe essere molto alto
+        if not self.issues and not self.warnings:
+            total_empty = self.empty_elements_count['total']
+            if total_empty <= 2:
+                # Calcola una piccola penalità basata sul numero di elementi vuoti
+                penalty = total_empty * 0.49  # 0.49% di penalità per ogni elemento vuoto
+                return 100.00 - penalty
+        
+        # Altrimenti calcola il punteggio pesato standard
         total_weight = sum(self.check_weights.values())
         weighted_sum = sum(
             self.check_weights[check] * self.check_scores[check]
