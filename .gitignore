@@ -4,3 +4,5 @@ dist/
 build
 ga.pdf
 c_bk.py
+.test
+__pycache__

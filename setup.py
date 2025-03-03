@@ -6,7 +6,7 @@ long_description = (this_directory / "README.md").read_text(encoding="utf-8")
 
 setup(
     name='avalpdf',
-    version='0.1.3',
+    version='0.1.4',
     author="Dennis Angemi",
     description="A command-line tool for validating PDF accessibility, analyzing document structure, and generating detailed reports",
     long_description=long_description,
