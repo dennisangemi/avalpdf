@@ -17,7 +17,12 @@ from avalpdf.formatter import print_formatted_content, COLOR_GREEN, COLOR_RED, C
 from avalpdf.utils import download_pdf, is_url
 from avalpdf.validator import AccessibilityValidator
 
-
+# Import Rich formatter conditionally to allow for fallback if not installed
+try:
+    from avalpdf.rich_formatter import display_document_structure, display_document_structure_tree
+    RICH_AVAILABLE = True
+except ImportError:
+    RICH_AVAILABLE = False
 
 def analyze_pdf(pdf_path: str, options: dict) -> None:
     """
@@ -65,17 +70,31 @@ def analyze_pdf(pdf_path: str, options: dict) -> None:
 
         # Show document structure if requested
         if options['show_structure']:
-            print("\n📄 Document Structure:")
-            print("Note: Colors are used to highlight different tag types and do not indicate errors:")
-            print(f"  {COLOR_GREEN}[P]{COLOR_RESET}: Paragraphs")
-            print(f"  {COLOR_RED}[H1-H6]{COLOR_RESET}: Headings")
-            print(f"  {COLOR_ORANGE}[Figure]{COLOR_RESET}: Images")
-            print(f"  {COLOR_PURPLE}[Table]{COLOR_RESET}: Tables")
-            print(f"  {COLOR_BLUE}[List]{COLOR_RESET}: Lists")
-            print("-" * 40)
-            for element in simplified_json.get('content', []):
-                print_formatted_content(element)
-            print("-" * 40)
+            # Use Rich formatter if requested and available
+            use_rich = options.get('use_rich', False)
+            
+            if use_rich and RICH_AVAILABLE:
+                # Use Rich for display - choose between tree or panel mode
+                if options.get('use_tree', False):
+                    display_document_structure_tree(simplified_json.get('content', []))
+                else:
+                    display_document_structure(simplified_json.get('content', []))
+            else:
+                # If Rich is not available or not selected, use the default formatter
+                if use_rich and not RICH_AVAILABLE:
+                    print("\n⚠️  Rich library not available, using default formatting.", file=sys.stderr)
+                
+                print("\n📄 Document Structure:")
+                print("Note: Colors are used to highlight different tag types and do not indicate errors:")
+                print(f"  {COLOR_GREEN}[P]{COLOR_RESET}: Paragraphs")
+                print(f"  {COLOR_RED}[H1-H6]{COLOR_RESET}: Headings")
+                print(f"  {COLOR_ORANGE}[Figure]{COLOR_RESET}: Images")
+                print(f"  {COLOR_PURPLE}[Table]{COLOR_RESET}: Tables")
+                print(f"  {COLOR_BLUE}[List]{COLOR_RESET}: Lists")
+                print("-" * 40)
+                for element in simplified_json.get('content', []):
+                    print_formatted_content(element)
+                print("-" * 40)
 
         # Run validation if requested
         if options['save_report'] or options['show_validation']:
@@ -134,6 +153,9 @@ Examples:
   
   Save all files without console output
   avalpdf document.pdf --full --simple --report --quiet
+  
+  Use Rich formatting for structure display
+  avalpdf document.pdf --rich
 """
         )
         
@@ -145,6 +167,8 @@ Examples:
         parser.add_argument('--show-structure', action='store_true', help='Show document structure in console')
         parser.add_argument('--show-validation', action='store_true', help='Show validation results in console')
         parser.add_argument('--quiet', '-q', action='store_true', help='Suppress all console output except errors')
+        parser.add_argument('--rich', action='store_true', help='Use Rich library for enhanced document structure display')
+        parser.add_argument('--tree', action='store_true', help='Use tree view instead of panel view with Rich')
         
         # Parse arguments normally, removing the special URL handling
         args = parser.parse_args()
@@ -182,7 +206,9 @@ Examples:
                 'save_report': args.report,
                 'show_structure': show_structure,
                 'show_validation': show_validation,
-                'quiet': args.quiet
+                'quiet': args.quiet,
+                'use_rich': args.rich,
+                'use_tree': args.tree
             }
             
             analyze_pdf(str(input_path), options)

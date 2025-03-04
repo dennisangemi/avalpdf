@@ -16,7 +16,8 @@ setup(
     packages=find_packages(),
     install_requires=[
         'pdfix-sdk',
-        'requests'
+        'requests',
+        'rich' 
     ],
     entry_points={
         'console_scripts': [
