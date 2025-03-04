@@ -121,6 +121,8 @@ Command Line Options
 * `--show-structure`: Display document structure
 * `--show-validation`: Display validation results
 * `--quiet`, `-q`: Suppress console output
+* `--rich`: Use enhanced visual formatting for document structure
+* `--tree`: Use tree view instead of panel view with Rich formatting
 
 Examples
 1. Quick accessibility check:
