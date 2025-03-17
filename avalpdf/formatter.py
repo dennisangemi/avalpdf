@@ -16,135 +16,67 @@ def print_formatted_content(element, level=0):
     text = element.get('text', '')
     children = element.get('children', [])
 
-    # Gestione speciale per P con figura annidata
-    if tag == 'P' and len(children) == 1 and children[0].get('tag') == 'Figure':
-        figure = children[0]
-        print(f"{indent}{COLOR_GREEN}[P]{COLOR_RESET} > {COLOR_ORANGE}[Figure]{COLOR_RESET} {figure.get('text', '')}")
-        return
+    # Format the tag string based on type
+    if tag == 'P':
+        tag_str = f"{COLOR_GREEN}[{tag}]{COLOR_RESET}"
+    elif tag.startswith('H'):
+        tag_str = f"{COLOR_RED}[{tag}]{COLOR_RESET}"
+    elif tag == 'Figure':
+        tag_str = f"{COLOR_ORANGE}[{tag}]{COLOR_RESET}"
+    elif tag == 'Table':
+        tag_str = f"{COLOR_PURPLE}[{tag}]{COLOR_RESET}"
+    elif tag == 'L':
+        tag_str = f"{COLOR_BLUE}[{tag}]{COLOR_RESET}"
+    else:
+        tag_str = f"[{tag}]"
 
-    # Gestione speciale per P o H con Span/Link annidati - stampa su un'unica riga
-    if (tag == 'P' or tag.startswith('H')) and children:
-        child_spans = [c for c in children if c.get('tag') in ['Span', 'Link']]
-        if child_spans:
-            # Formatta il tag principale
-            if tag == 'P':
-                tag_str = f"{COLOR_GREEN}[{tag}]{COLOR_RESET}"
-            elif tag.startswith('H'):
-                tag_str = f"{COLOR_RED}[{tag}]{COLOR_RESET}"
-            else:
-                tag_str = f"[{tag}]"
-                
-            # Formatta ogni span/link con > sulla stessa riga
-            spans_output = []
-            for child in child_spans:
-                child_tag = child.get('tag')
-                child_text = child.get('text', '')
-                if child_tag == 'Span':
-                    spans_output.append(f"> [Span] {child_text}")
-                elif child_tag == 'Link':
-                    spans_output.append(f"> [Link] {child_text}")
-            
-            # Stampa l'elemento principale e i suoi figli span/link sulla stessa riga
-            print(f"{indent}{tag_str} {' '.join(spans_output)}")
-            
-            # Stampa gli altri figli che non sono Span/Link
-            other_children = [c for c in children if c.get('tag') not in ['Span', 'Link']]
-            for child in other_children:
-                print_formatted_content(child, level + 1)
-                
-            return
-
-    # Gestione tabelle migliorata con indicazione di TH e TD
+    # Handle special cases
     if tag == 'Table':
         print(f"{indent}{COLOR_PURPLE}[Table]{COLOR_RESET}")
         table_content = element.get('content', {})
         
-        # Ottieni le intestazioni e le righe per calcolare la larghezza di colonna ottimale
+        # Obtain headers and rows to calculate optimal column width
         headers = table_content.get('headers', [])
         rows = table_content.get('rows', [])
         
-        # Calcola la larghezza massima per ogni colonna
+        # Calculate maximum width for each column
         all_rows = headers + rows
         max_columns = max([len(row) for row in all_rows]) if all_rows else 0
         column_widths = [0] * max_columns
         
-        # Determina la larghezza ideale per ogni colonna basata sul contenuto
+        # Determine ideal width for each column based on content
         for row in all_rows:
             for i, cell in enumerate(row):
-                if i < max_columns:  # Evita errori di indice
+                if i < max_columns:  # Avoid index errors
                     if isinstance(cell, dict):
-                        # Calcola la lunghezza del testo visualizzato senza i codici ANSI
-                        text = cell.get('text', '').strip()
-                        text_length = len(text)
+                        # Calculate the length of displayed text without ANSI codes
+                        formatted_content = format_cell_content_with_type(cell)
+                        text_length = len(formatted_content.replace(COLOR_GREEN, "").replace(COLOR_RED, "")
+                                      .replace(COLOR_ORANGE, "").replace(COLOR_PURPLE, "")
+                                      .replace(COLOR_BLUE, "").replace(COLOR_RESET, ""))
                         
-                        # Aggiungi una lunghezza extra per indicatori di TH/TD e tag annidati
-                        cell_type_tag = "[TH] > " if cell.get('isHeader', False) or cell.get('isRowHeader', False) else "[TD] > "
-                        tag_length = len(cell_type_tag) + 5  # [TH] > [P] è più lungo di [P]
-                        total_length = text_length + tag_length
-                        
-                        column_widths[i] = max(column_widths[i], min(total_length, 50))  # Limita a 50 caratteri per leggibilità
+                        column_widths[i] = max(column_widths[i], min(text_length, 50))  # Limit to 50 chars for readability
         
-        # Funzione per stampare una riga formattata con larghezze colonne
-        def print_table_row(row, is_header_row=False):
-            cells = []
-            for i, cell in enumerate(row):
-                if isinstance(cell, dict):
-                    # Prepara il contenuto della cella con formattazione migliorata
-                    is_header = cell.get('isHeader', False) or cell.get('isRowHeader', False) or is_header_row
-                    
-                    # Mostra sempre il tag TH o TD appropriato
-                    cell_type_tag = f"{COLOR_RED}[TH]{COLOR_RESET} > " if is_header else f"[TD] > "
-                    cell_content = format_cell_content_with_type(cell, show_cell_type=False).strip()
-                    
-                    # Combina il tag di cella con il contenuto
-                    if cell_content:
-                        content = f"{cell_type_tag}{cell_content}"
-                    else:
-                        content = f"{cell_type_tag}{COLOR_GREEN}[Empty]{COLOR_RESET}"
-                    
-                    # Aggiungi padding e tronca se necessario
-                    width = column_widths[i] if i < len(column_widths) else 15
-                    # Non consideriamo i codici ANSI nel calcolo della lunghezza
-                    visible_length = len(content.replace(COLOR_GREEN, "").replace(COLOR_RED, "").
-                                         replace(COLOR_ORANGE, "").replace(COLOR_PURPLE, "").
-                                         replace(COLOR_BLUE, "").replace(COLOR_RESET, ""))
-                    
-                    # Spazio aggiuntivo per i codici di colore
-                    color_padding = len(content) - visible_length
-                    padded_content = content.ljust(width + color_padding)
-                    
-                    cells.append(padded_content)
-            
-            if cells:
-                print(f"{indent}    | " + " | ".join(cells) + " |")
-            
-        # Stampa le intestazioni di colonna
+        # Print headers
         if headers:
             print(f"{indent}  {COLOR_PURPLE}[Headers]{COLOR_RESET}")
             for row in headers:
-                print_table_row(row, True)
-            # Aggiungi un separatore visivo tra intestazioni e dati
+                print_table_row(row, indent, column_widths, True)
+            # Add a visual separator between headers and data
             separator = []
             for width in column_widths:
                 separator.append("-" * width)
             print(f"{indent}    +-" + "-+-".join(separator) + "-+")
         
-        # Stampa le righe di dati, evidenziando le intestazioni di riga
+        # Print data rows, highlighting row headers
         if rows:
             print(f"{indent}  {COLOR_PURPLE}[Rows]{COLOR_RESET}")
             for row in rows:
-                print_table_row(row)
+                print_table_row(row, indent, column_widths)
         
         return
 
-    # Handle other elements
-    if tag == 'Figure':
-        print(f"{indent}{COLOR_ORANGE}[Figure]{COLOR_RESET} {text}")
-        if children:  # Process any nested elements
-            for child in children:
-                print_formatted_content(child, level + 1)
-        return
-    elif tag == 'L':
+    if tag == 'L':
         list_type = f"{COLOR_BLUE}[ORDERED LIST]{COLOR_RESET}" if element.get('ordered', False) else f"{COLOR_BLUE}[UNORDERED LIST]{COLOR_RESET}"
         print(f"{indent}{list_type}")
         if element.get('items'):
@@ -158,23 +90,78 @@ def print_formatted_content(element, level=0):
                 for item in element.get('items'):
                     print(f"{indent}  {item}")
         return
-    elif tag == 'P':
-        tag_str = f"{COLOR_GREEN}[{tag}]{COLOR_RESET}"
-    elif tag.startswith('H'):
-        tag_str = f"{COLOR_RED}[{tag}]{COLOR_RESET}"
-    else:
-        tag_str = f"[{tag}]"
 
-    # Print current element
-    if text.strip():
+    # Special handling for elements with both text and children
+    if children and text.strip():
+        # Print the element's own text first
         print(f"{indent}{tag_str} {text}")
-    elif tag != 'Sect':  # Non stampare elementi Sect vuoti
-        print(f"{indent}{tag_str}")
+        
+        # Check for Figure children
+        has_figures = any(child.get('tag') == 'Figure' for child in children)
+        
+        # Classify children by type
+        figures = []
+        inline_elements = []  # Span, Link, etc.
+        block_elements = []   # Other block-level elements
+        
+        for child in children:
+            child_tag = child.get('tag', '')
+            if child_tag == 'Figure':
+                figures.append(child)
+            elif child_tag in ['Span', 'Link']:
+                inline_elements.append(child)
+            else:
+                block_elements.append(child)
+        
+        # Print inline elements on the same line
+        if inline_elements:
+            inline_output = []
+            for child in inline_elements:
+                child_tag = child.get('tag')
+                child_text = child.get('text', '')
+                inline_output.append(f"> [{child_tag}] {child_text}")
             
-    # Print children
-    if children:
+            if inline_output:
+                print(f"{indent}  Inline elements: {' '.join(inline_output)}")
+        
+        # Print figure children with proper indentation
+        if figures:
+            for figure in figures:
+                figure_text = figure.get('text', '')
+                print(f"{indent}  {COLOR_ORANGE}[Figure]{COLOR_RESET} {figure_text}")
+        
+        # Print other block children recursively
+        for child in block_elements:
+            print_formatted_content(child, level + 1)
+        
+        return
+        
+    # Handle elements with text but no children
+    elif text.strip():
+        print(f"{indent}{tag_str} {text}")
+        return
+    
+    # Handle elements with children but no text
+    elif children:
+        # Print the tag by itself if it has no text
+        if tag != 'Sect':  # Skip empty Sect tags
+            print(f"{indent}{tag_str}")
+        
+        # Special case for P with figure(s) only
+        if tag == 'P' and all(child.get('tag') == 'Figure' for child in children):
+            for child in children:
+                child_text = child.get('text', '')
+                print(f"{indent}  {COLOR_ORANGE}[Figure]{COLOR_RESET} {child_text}")
+            return
+            
+        # Process all other children recursively
         for child in children:
             print_formatted_content(child, level + 1)
+        return
+            
+    # Handle elements with neither text nor children (empty elements)
+    elif tag != 'Sect':  # Skip empty Sect tags
+        print(f"{indent}{tag_str}")  # Changed from print(f"{indent}{tag_str} [Empty]")
 
 def format_cell_content_with_type(element, level=0, show_cell_type=True) -> str:
     """Format cell content recursively including cell type (TH/TD) and nested elements"""
@@ -182,60 +169,97 @@ def format_cell_content_with_type(element, level=0, show_cell_type=True) -> str:
         return ""
         
     tag = element.get('tag', '')
-    text = element.get('text', '').strip()
+    text = element.get('text', '').strip() if element.get('text') else ""
     children = element.get('children', [])
     is_header = element.get('isHeader', False) or element.get('isRowHeader', False)
     
+    # First build the main cell or element tag
+    if show_cell_type and tag in ['TD', 'TH']:
+        # For actual table cells
+        if is_header or tag == 'TH':
+            main_tag = f"{COLOR_RED}[TH]{COLOR_RESET}"
+        else:
+            main_tag = "[TD]"
+    elif tag and tag not in ['TD', 'TH']:
+        # For other elements
+        if tag.startswith('H'):
+            main_tag = f"{COLOR_RED}[{tag}]{COLOR_RESET}"
+        elif tag == 'P':
+            main_tag = f"{COLOR_GREEN}[{tag}]{COLOR_RESET}"
+        elif tag == 'Figure':
+            main_tag = f"{COLOR_ORANGE}[{tag}]{COLOR_RESET}"
+        else:
+            main_tag = f"[{tag}]"
+    else:
+        main_tag = ""
+    
+    # Build an array of parts to join later
     parts = []
     
-    # Aggiungi il tag di tipo cella (TH o TD) se richiesto
-    if show_cell_type:
-        if is_header:
-            parts.append(f"{COLOR_RED}[TH]{COLOR_RESET} > ")
-        else:
-            parts.append("[TD] > ")
+    # First add the main tag if it exists
+    if main_tag:
+        parts.append(main_tag)
     
-    # Casi speciali per elementi annidati
-    if tag == 'P' and len(children) == 1 and children[0].get('tag') == 'Figure':
-        # Per P con una sola figura annidata, mostra entrambi i tag
-        figure = children[0]
-        figure_part = f"{COLOR_GREEN}[P]{COLOR_RESET} > {COLOR_ORANGE}[Figure]{COLOR_RESET} {figure.get('text', '')}"
-        parts.append(figure_part)
-        return ''.join(parts)
-    
-    # Aggiungi il tag dell'elemento
-    if tag == 'Figure':
-        parts.append(f"{COLOR_ORANGE}[{tag}]{COLOR_RESET}")
-    elif tag.startswith('H'):
-        parts.append(f"{COLOR_RED}[{tag}]{COLOR_RESET}")
-    elif tag == 'P':
-        parts.append(f"{COLOR_GREEN}[{tag}]{COLOR_RESET}")
-    else:
-        parts.append(f"[{tag}]")
-    
-    # Aggiungi il testo dell'elemento
+    # Add direct text if it exists
     if text:
         parts.append(text)
     
-    # Gestione speciale per tag annidati
+    # Now handle children (if any)
     if children:
-        # Handle Span in P or H tags - use > syntax
-        child_spans = [c for c in children if c.get('tag') in ['Span', 'Link']]
-        if child_spans:
-            for child in child_spans:
-                child_tag = child.get('tag')
-                child_text = child.get('text', '').strip() 
-                if child_text:
-                    parts.append(f"> [{child_tag}] {child_text}")
+        # Format each child without showing cell type again
+        child_parts = []
         
-        # For other nested elements, add a compact representation
-        other_children = [c for c in children if c.get('tag') not in ['Span', 'Link']]
-        if other_children:
-            nested_tags = [f"+{c.get('tag')}" for c in other_children]
-            if nested_tags:
-                parts.append(f"[{' '.join(nested_tags)}]")
+        for child in children:
+            child_tag = child.get('tag', '')
+            
+            # Skip nested TD/TH tags to avoid confusion
+            if child_tag in ['TD', 'TH']:
+                # Instead of showing the TD/TH tag again, directly show its children
+                for grandchild in child.get('children', []):
+                    child_str = format_cell_content_with_type(grandchild, level+1, False)
+                    if child_str.strip():
+                        child_parts.append(child_str)
+            else:
+                # For normal nested elements (not TD/TH)
+                child_str = format_cell_content_with_type(child, level+1, False)
+                if child_str.strip():
+                    child_parts.append(child_str)
+        
+        # Only add child content if we have any
+        if child_parts:
+            # If we already have main content, add a separator
+            if parts:
+                return f"{' '.join(parts)} > {' > '.join(child_parts)}"
+            else:
+                return ' > '.join(child_parts)
     
+    # If no children, just return the main parts
     return ' '.join(parts)
+
+def print_table_row(row, indent, column_widths, is_header_row=False):
+    """Print a table row with improved formatting for nested elements"""
+    cells = []
+    for i, cell in enumerate(row):
+        if isinstance(cell, dict):
+            # Format the cell content for display
+            is_header = cell.get('isHeader', False) or cell.get('isRowHeader', False) or is_header_row
+            
+            # Improved cell formatting to properly show nested structure
+            formatted_content = format_cell_content_with_type(cell)
+            
+            # Calculate proper width and padding
+            width = column_widths[i] if i < len(column_widths) else 15
+            visible_length = len(formatted_content.replace(COLOR_GREEN, "").replace(COLOR_RED, "")
+                              .replace(COLOR_ORANGE, "").replace(COLOR_PURPLE, "")
+                              .replace(COLOR_BLUE, "").replace(COLOR_RESET, ""))
+            
+            color_padding = len(formatted_content) - visible_length
+            padded_content = formatted_content.ljust(width + color_padding)
+            
+            cells.append(padded_content)
+    
+    if cells:
+        print(f"{indent}    | " + " | ".join(cells) + " |")
 
 # Modifica la funzione di formato celle originale per utilizzare la nuova versione
 def format_cell_content(element, level=0) -> str:

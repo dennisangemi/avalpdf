@@ -11,28 +11,23 @@ def extract_content(element, level=0):
     tag_type = element.get('S', '')
     
     try:
-        # Gestione speciale per tag Part
-        if tag_type == 'Part':
-            if 'K' in element and isinstance(element.get('K'), list):
-                for child in element.get('K', []):
-                    if isinstance(child, dict):
-                        nested_results = extract_content(child, level)
-                        results.extend(nested_results)
-            return results
-            
-        if tag_type and tag_type != 'Document':
+        # Process all tag types, including Document
+        if tag_type:
             content = []
             child_elements = []
+            figure_elements = []  # Track figure elements separately
             
-            # Crea l'elemento base solo con il tag
+            # Create the element base with the tag, regardless of type
             element_dict = {"tag": tag_type}
             
+            # Process Figure tags with special handling for alt text
             if tag_type == 'Figure':
                 alt_text = element.get('Alt', '')
                 element_dict["text"] = alt_text if alt_text else ""
                 results.append(element_dict)
                 return results
                 
+            # Process Table tags with specialized extraction
             elif tag_type == 'Table':
                 table_content = {
                     'headers': [],
@@ -102,20 +97,7 @@ def extract_content(element, level=0):
                 })
                 return results
             
-            elif tag_type == 'Sect':
-                # Estrai il contenuto direttamente dal Sect
-                element_dict["text"] = ""  # Inizializza text vuoto
-                
-                if 'K' in element:
-                    for child in element['K']:
-                        child_results = extract_content(child, level + 1)
-                        if child_results:
-                            child_elements.extend(child_results)
-                
-                if child_elements:
-                    element_dict["children"] = child_elements
-                results.append(element_dict)
-                
+            # Process list tags with special extraction 
             elif tag_type == 'L':
                 items = []
                 is_ordered = False
@@ -172,6 +154,7 @@ def extract_content(element, level=0):
                     })
                 return results
 
+            # Process all other tag types, including Document and Sect
             else:
                 # Process children first to collect nested elements
                 if 'K' in element:
@@ -187,28 +170,66 @@ def extract_content(element, level=0):
                             except (KeyError, AttributeError):
                                 continue
                         else:
-                            nested_results = extract_content(child, level + 1)
-                            child_elements.extend(nested_results)
+                            # Check if this is a Figure tag before recursing
+                            if child.get('S') == 'Figure':
+                                # Keep track of figures separately to preserve their position
+                                # in relation to other text content
+                                figure_result = extract_content(child, level + 1)
+                                if figure_result:
+                                    figure_elements.append(figure_result[0])
+                            else:
+                                nested_results = extract_content(child, level + 1)
+                                child_elements.extend(nested_results)
+                
+                # Extract direct content if present
+                if 'Content' in element:
+                    try:
+                        text_fragments = extract_text_content(element.get('Content', []))
+                        if text_fragments:
+                            content.extend(text_fragments)
+                    except (KeyError, AttributeError):
+                        pass
                 
                 # Create element with text and children
                 text = ''.join(content)
                 
-                if text or text == '':  # Include empty strings
+                if text or text == '' or figure_elements:  # Include empty strings and cases with only figures
                     element_dict["text"] = text
+                    
+                # Add figure elements as children if they exist
+                if figure_elements:
+                    if not child_elements:
+                        child_elements = figure_elements
+                    else:
+                        # We need to merge figure_elements with child_elements
+                        # in the correct order based on their position in the original document
+                        # For simplicity, we'll just append them for now
+                        child_elements.extend(figure_elements)
+                
                 if child_elements:
                     element_dict["children"] = child_elements
                     
                 results.append(element_dict)
         
-        # Process siblings for Document tag
+        # Special handling for Part, StructTreeRoot, and unlabeled elements  
         elif 'K' in element and isinstance(element.get('K'), list):
+            # If there's no tag type but there are children, process them
+            # This helps with unlabeled structural elements and parts
             for child in element.get('K', []):
                 if isinstance(child, dict):
                     nested_results = extract_content(child, level + 1)
                     results.extend(nested_results)
                     
     except Exception as e:
-        print(f"Warning: Error processing element: {str(e)}", file=sys.stderr)
+        # Log the error but continue processing
+        print(f"Warning: Error processing element at level {level}: {str(e)}", file=sys.stderr)
+        # Add the element with error information to not lose the tag
+        if tag_type:
+            results.append({
+                "tag": tag_type,
+                "text": f"[Error extracting content: {str(e)}]",
+                "extraction_error": True
+            })
         
     return results
 
@@ -221,24 +242,68 @@ def process_table_cell(cell):
     if cell_type not in ['TD', 'TH']:
         return []
         
-    # Initialize cell result
-    cell_result = {"tag": "P", "text": ""}
+    # Create a cell element with the correct type
+    cell_result = {
+        "tag": cell_type,
+        "text": "",  # Will be populated if there's direct text content
+        "children": []  # Will be populated with nested elements
+    }
     
-    # Extract text content recursively
-    def extract_cell_content(element):
-        text_parts = []
-        if isinstance(element, dict):
+    # Process the cell's content
+    def extract_cell_elements(element, parent_element):
+        if not isinstance(element, dict):
+            return
+            
+        tag = element.get('S', '')
+        
+        # If it's a recognized structural tag, create a proper element
+        if tag:
+            elem_dict = {"tag": tag}
+            text_content = []
+            
+            # Process Content directly
             if 'Content' in element:
-                text_parts.extend(extract_text_content(element['Content']))
+                text_fragments = extract_text_content(element['Content'])
+                text_content.extend(text_fragments)
+                
+            # Process children K
+            child_elements = []
             if 'K' in element:
-                for child in element['K']:
-                    text_parts.extend(extract_cell_content(child))
-        return text_parts
+                for child in element.get('K', []):
+                    # Recursive call to process nested elements
+                    extract_cell_elements(child, elem_dict)
+            
+            # Set text for the element
+            if text_content:
+                elem_dict["text"] = ''.join(text_content)
+                
+            # Add element to parent's children
+            if 'children' not in parent_element:
+                parent_element['children'] = []
+                
+            parent_element['children'].append(elem_dict)
+        else:
+            # If no tag, just extract text content
+            if 'Content' in element:
+                text_fragments = extract_text_content(element['Content'])
+                if text_fragments:
+                    # Add text content to parent element
+                    if 'text' not in parent_element:
+                        parent_element['text'] = ''
+                    parent_element['text'] += ''.join(text_fragments)
+            
+            # Try to process children
+            if 'K' in element:
+                for child in element.get('K', []):
+                    extract_cell_elements(child, parent_element)
     
-    # Get all text content from the cell
-    text_parts = extract_cell_content(cell)
-    cell_result["text"] = ''.join(text_parts).strip()
+    # Start extracting elements from the cell
+    extract_cell_elements(cell, cell_result)
     
+    # If no content was extracted, return a basic paragraph
+    if not cell_result.get('text') and not cell_result.get('children'):
+        cell_result["text"] = ""
+        
     # Mark header cells
     if cell_type == 'TH':
         cell_result["isHeader"] = True
@@ -248,8 +313,11 @@ def process_table_cell(cell):
 def extract_text_content(content_list):
     """Extract text content from Content list"""
     text_fragments = []
+    if not isinstance(content_list, list):
+        return text_fragments
+        
     for content_item in content_list:
-        if content_item.get('Type') == 'Text':
+        if isinstance(content_item, dict) and content_item.get('Type') == 'Text':
             # Add text exactly as is, without stripping
             text_fragments.append(content_item.get('Text', ''))
     return text_fragments

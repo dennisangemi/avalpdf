@@ -4,51 +4,95 @@ A command-line tool for validating PDF accessibility, analyzing document structu
 
 ## Features
 
+<details>
+<summary><strong>Document structure analysis and support</strong></summary>
+
 - Document structure analysis 
 - Support for both local and remote PDF files
-- Validation of:
-  - Document tags and metadata:
-    - Document tagging status
-    - Title presence
-    - Language declaration (Italian)
-  - Heading hierarchy:
-    - H1 presence
-    - Correct heading levels sequence
-  - Figure alt text:
-    - Missing alternative text detection
-    - Complex or problematic alt text patterns
-  - Tables structure:
-    - Header presence and proper structure
-    - Empty cells detection
-    - Duplicate headers check
-    - Multiple header rows warning
-    - Empty tables detection
-  - Lists structure:
-    - Proper list tagging
-    - Detection of untagged lists (consecutive paragraphs with bullets/numbers)
-    - Misused list types (numbered items in unordered lists)
-    - List hierarchy consistency
-  - Links:
-    - Detection of non-descriptive links
-    - Raw URL text warnings
-    - Email and institutional domain exceptions
-  - Formatting issues:
-    - Excessive underscores (used for underlining)
-    - Spaced capital letters (like "T E S T")
-    - Extra spaces used for layout (3+ consecutive spaces)
-  - Empty elements:
-    - Empty paragraphs
-    - Whitespace-only elements
-    - Empty headings
-    - Empty spans
-    - Empty table cells
-- Multiple output formats:
-  - Detailed JSON structure
-  - Simplified JSON
-  - Accessibility validation report
-  - Console reports with color-coded structure visualization
+</details>
+
+<details>
+<summary><strong>Document tags and metadata validation</strong></summary>
+
+- Document tagging status
+- Title presence
+- Language declaration (Italian)
+</details>
+
+<details>
+<summary><strong>Heading hierarchy validation</strong></summary>
+
+- H1 presence
+- Correct heading levels sequence
+</details>
+
+<details>
+<summary><strong>Figure alt text validation</strong></summary>
+
+- Missing alternative text detection
+- Complex or problematic alt text patterns
+</details>
+
+<details>
+<summary><strong>Tables structure validation</strong></summary>
+
+- Header presence and proper structure
+- Empty cells detection
+- Duplicate headers check
+- Multiple header rows warning
+- Empty tables detection
+</details>
+
+<details>
+<summary><strong>Lists structure validation</strong></summary>
+
+- Proper list tagging
+- Detection of untagged lists (consecutive paragraphs with bullets/numbers)
+- Misused list types (numbered items in unordered lists)
+- List hierarchy consistency
+</details>
+
+<details>
+<summary><strong>Links validation</strong></summary>
+
+- Detection of non-descriptive links
+- Raw URL text warnings
+- Email and institutional domain exceptions
+</details>
+
+<details>
+<summary><strong>Formatting issues detection</strong></summary>
+
+- Excessive underscores (used for underlining)
+- Spaced capital letters (like "T E S T")
+- Extra spaces used for layout (3+ consecutive spaces)
+</details>
+
+<details>
+<summary><strong>Empty elements detection</strong></summary>
+
+- Empty paragraphs
+- Whitespace-only elements
+- Empty headings
+- Empty spans
+- Empty table cells
+</details>
+
+<details>
+<summary><strong>Output formats</strong></summary>
+
+- Detailed JSON structure
+- Simplified JSON
+- Accessibility validation report
+- Console reports with color-coded structure visualization
+</details>
+
+<details>
+<summary><strong>Scoring and reporting</strong></summary>
+
 - Weighted scoring system based on accessibility criteria
 - Detailed issue categorization (issues, warnings, successes)
+</details>
 
 ## Installation
 
@@ -111,6 +155,9 @@ avalpdf document.pdf -o /path/to/output --report --simple
 
 # Show document structure only
 avalpdf document.pdf --show-structure
+
+# Display version information
+avalpdf --version
 ```
 
 Command Line Options
@@ -123,6 +170,7 @@ Command Line Options
 * `--quiet`, `-q`: Suppress console output
 * `--rich`: Use enhanced visual formatting for document structure
 * `--tree`: Use tree view instead of panel view with Rich formatting
+* `--version`, `-v`: Display the version number and exit
 
 Examples
 1. Quick accessibility check:
@@ -171,3 +219,11 @@ For issues or suggestions:
 * Open an issue on GitHub
 * Provide the PDF file (if possible) and the complete error message
 * Include the command you used and your operating system information
+
+## Local development
+
+```sh
+uv venv .test
+source .test/bin/activate
+uv pip install -e . --upgrade
+```

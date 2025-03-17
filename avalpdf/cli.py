@@ -16,6 +16,7 @@ from avalpdf.extractor import extract_content, create_simplified_json
 from avalpdf.formatter import print_formatted_content, COLOR_GREEN, COLOR_RED, COLOR_ORANGE, COLOR_PURPLE, COLOR_BLUE, COLOR_RESET
 from avalpdf.utils import download_pdf, is_url
 from avalpdf.validator import AccessibilityValidator
+from avalpdf.version import __version__
 
 # Import Rich formatter conditionally to allow for fallback if not installed
 try:
@@ -115,16 +116,24 @@ def analyze_pdf(pdf_path: str, options: dict) -> None:
             validator.validate_spaced_capitals(simplified_json.get('content', []))
             validator.validate_extra_spaces(simplified_json.get('content', []))
             validator.validate_links(simplified_json.get('content', []))  # Add link validation
+            validator.validate_italian_accents(simplified_json.get('content', []))  # Add Italian accent validation
             
             # Show validation results if requested
             if options['show_validation']:
                 validator.print_console_report()
             
-            # Save validation report if requested
+            # Enhance the report to include accent issues more prominently
             if options['save_report']:
+                report_json = validator.generate_json_report()
+                
+                # Add a separate section for accent issues in the JSON report
+                accent_warnings = [w for w in validator.warnings if "accent" in w.lower() or "apostrophe" in w.lower()]
+                if accent_warnings:
+                    report_json["validation_results"]["accent_issues"] = accent_warnings
+                
                 report_path = output_dir / f"{pdf_name}_validation_report.json"
                 with open(report_path, 'w', encoding='utf-8') as f:
-                    json.dump(validator.generate_json_report(), f, indent=2)
+                    json.dump(report_json, f, indent=2)
                 if not options['quiet']:
                     print(f"\n💾 Validation report saved to: {report_path}")
         
@@ -169,6 +178,7 @@ Examples:
         parser.add_argument('--quiet', '-q', action='store_true', help='Suppress all console output except errors')
         parser.add_argument('--rich', action='store_true', help='Use Rich library for enhanced document structure display')
         parser.add_argument('--tree', action='store_true', help='Use tree view instead of panel view with Rich')
+        parser.add_argument('--version', '-v', action='version', version=f'avalpdf {__version__}', help='Show program version and exit')
         
         # Parse arguments normally, removing the special URL handling
         args = parser.parse_args()

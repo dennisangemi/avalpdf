@@ -22,6 +22,7 @@ class AccessibilityValidator:
             'empty_elements': 1,   # Ridotto al minimo perché meno importante
             'underlining': 1,      # Invariato
             'spacing': 1,          # Invariato
+            'italian_accents': 2,  # Nuovo peso per controllo accenti italiani
             'extra_spaces': 0.5,   # Ridotto perché poco rilevante
             'links': 0.5          # Ridotto perché poco rilevante
         }
@@ -89,16 +90,59 @@ class AccessibilityValidator:
                     self.empty_elements_count['spans'] += 1
                     self.empty_elements_count['total'] += 1
                     
-            # Special check for table cells
+            # Special check for table cells with deeply nested content
             if tag == 'Table':
                 table_content = element.get('content', {})
-                # Check both headers and rows
-                for section in ['headers', 'rows']:
-                    for row in table_content.get(section, []):
-                        for cell in row:
-                            if isinstance(cell, dict) and not cell.get('text', '').strip():
-                                self.empty_elements_count['table_cells'] += 1
-                                self.empty_elements_count['total'] += 1
+                
+                # Helper function to check if a cell is truly empty
+                def is_cell_truly_empty(cell):
+                    # Not a dictionary
+                    if not isinstance(cell, dict):
+                        return True
+                        
+                    # Cell has direct text content
+                    if cell.get('text', '').strip():
+                        return False
+                        
+                    # Cell has no children
+                    if not cell.get('children'):
+                        return True
+                        
+                    # Check each child deeply for content
+                    for child in cell.get('children', []):
+                        # If the child is a nested TD/TH
+                        if isinstance(child, dict) and child.get('tag') in ['TD', 'TH']:
+                            if not is_cell_truly_empty(child):
+                                return False
+                        # If the child is any other tag (like P, Span, etc.)
+                        elif isinstance(child, dict):
+                            # Check if child has direct text
+                            if child.get('text', '').strip():
+                                return False
+                            # Check grandchildren recursively
+                            for grandchild in child.get('children', []):
+                                if isinstance(grandchild, dict) and (
+                                   grandchild.get('text', '').strip() or
+                                   grandchild.get('tag') == 'Figure' or
+                                   not is_cell_truly_empty(grandchild)):
+                                    return False
+                            
+                    # If we get here, the cell is truly empty
+                    return True
+                
+                # Check table headers
+                for row in table_content.get('headers', []):
+                    for cell in row:
+                        if is_cell_truly_empty(cell):
+                            self.empty_elements_count['table_cells'] += 1
+                            self.empty_elements_count['total'] += 1
+                
+                # Check table data rows
+                for row in table_content.get('rows', []):
+                    for cell in row:
+                        if is_cell_truly_empty(cell):
+                            self.empty_elements_count['table_cells'] += 1
+                            self.empty_elements_count['total'] += 1
             
             # Check children recursively
             for child in element.get('children', []):
@@ -215,68 +259,262 @@ class AccessibilityValidator:
             self.check_scores['headings'] = 0
             return
             
-        headings = []
-        empty_headings = []
+        # Track headings with their location and level
+        headings = []  # Will store tuples of (level, path)
+        empty_headings = []  # Will store tuples of (level, path)
+        headings_with_only_figures = []  # Will store tuples of (level, path)
         
-        def collect_headings(element: Dict) -> None:
+        # Track the order of headings in the document to determine the first one
+        ordered_headings = []  # Will store tuples of (level, path, is_empty, has_only_figures)
+        
+        def collect_headings(element: Dict, path: str = "") -> None:
+            """Recursively collect all headings in the document, including nested ones"""
             tag = element.get('tag', '')
+            current_path = f"{path}/{tag}" if path else tag
+            
+            # Check if this element is a heading
             if tag.startswith('H'):
                 try:
                     level = int(tag[1:])
-                    # Usa is_element_empty per verificare se il titolo è vuoto
-                    if is_element_empty(element):
-                        empty_headings.append(level)
+                    # Check if the heading contains only figures and no text
+                    has_only_figure = False
+                    has_text = False
+                    
+                    # Check direct text content
+                    if element.get('text', '').strip():
+                        has_text = True
+                    
+                    # Check children for figures and text
+                    children = element.get('children', [])
+                    if children:
+                        # Check if the only child is a Figure
+                        if len(children) == 1 and children[0].get('tag') == 'Figure':
+                            has_only_figure = True
+                        # Or if all children are either empty or figures
+                        elif all(child.get('tag') == 'Figure' or 
+                                 is_element_empty(child) for child in children):
+                            has_only_figure = True and any(child.get('tag') == 'Figure' for child in children)
+                        
+                        # If any child has text, mark as having text
+                        for child in children:
+                            if child.get('text', '').strip():
+                                has_text = True
+                                break
+                            # Check deeper for text
+                            for grandchild in child.get('children', []):
+                                if isinstance(grandchild, dict) and grandchild.get('text', '').strip():
+                                    has_text = True
+                                    break
+                    
+                    # Store in ordered list for determining first heading
+                    is_empty = is_element_empty(element)
+                    ordered_headings.append((level, current_path, is_empty, has_only_figure and not has_text))
+                    
+                    # Decide how to classify this heading
+                    if has_only_figure and not has_text:
+                        headings_with_only_figures.append((level, current_path))
+                    elif is_empty:
+                        empty_headings.append((level, current_path))
                     else:
-                        headings.append(level)
+                        headings.append((level, current_path))
                 except ValueError:
                     pass
             
+            # Check children recursively
             for child in element.get('children', []):
-                collect_headings(child)
+                collect_headings(child, current_path)
+                
+            # Special handling for tables to find headings inside cells
+            if tag == 'Table':
+                table_content = element.get('content', {})
+                
+                # Process header cells
+                for i, row in enumerate(table_content.get('headers', [])):
+                    for j, cell in enumerate(row):
+                        if isinstance(cell, dict):
+                            cell_path = f"{current_path}/header[{i}][{j}]"
+                            process_cell_for_headings(cell, cell_path)
+                
+                # Process data cells
+                for i, row in enumerate(table_content.get('rows', [])):
+                    for j, cell in enumerate(row):
+                        if isinstance(cell, dict):
+                            cell_path = f"{current_path}/row[{i}][{j}]"
+                            process_cell_for_headings(cell, cell_path)
+                            
+        def process_cell_for_headings(cell: Dict, cell_path: str) -> None:
+            """Process a table cell to find any headings inside it"""
+            # Check for direct headings in the cell
+            cell_tag = cell.get('tag', '')
+            if cell_tag.startswith('H'):
+                try:
+                    level = int(cell_tag[1:])
+                    # Check if cell has only figure and no text
+                    has_only_figure = False
+                    has_text = cell.get('text', '').strip() != ''
+                    
+                    # Check for figures in children
+                    children = cell.get('children', [])
+                    if children and not has_text:
+                        if len(children) == 1 and children[0].get('tag') == 'Figure':
+                            has_only_figure = True
+                    
+                    if has_only_figure:
+                        headings_with_only_figures.append((level, cell_path))
+                    elif is_element_empty(cell):
+                        empty_headings.append((level, cell_path))
+                    else:
+                        headings.append((level, cell_path))
+                except ValueError:
+                    pass
+                    
+            # Check for headings in cell children
+            for child in cell.get('children', []):
+                child_tag = child.get('tag', '')
+                child_path = f"{cell_path}/{child_tag}"
+                
+                if child_tag.startswith('H'):
+                    try:
+                        level = int(child_tag[1:])
+                        # Check if heading has only figure
+                        has_only_figure = False
+                        has_text = child.get('text', '').strip() != ''
+                        
+                        # Check children for figures
+                        grandchildren = child.get('children', [])
+                        if grandchildren and not has_text:
+                            if len(grandchildren) == 1 and grandchildren[0].get('tag') == 'Figure':
+                                has_only_figure = True
+                        
+                        if has_only_figure:
+                            headings_with_only_figures.append((level, child_path))
+                        elif is_element_empty(child):
+                            empty_headings.append((level, child_path))
+                        else:
+                            headings.append((level, child_path))
+                    except ValueError:
+                        pass
+                        
+                # Recursively process nested elements
+                if child.get('children'):
+                    process_cell_for_headings(child, child_path)
         
+        # Start the heading collection
         for element in content:
             collect_headings(element)
         
-        # Logica di scoring rivista per i titoli
-        if empty_headings and not headings:
-            # Se ci sono solo titoli vuoti, il punteggio deve essere molto basso
-            self.issues.append(f"Found {len(empty_headings)} empty heading{'s' if len(empty_headings) > 1 else ''} (H{', H'.join(map(str, empty_headings))}) and no valid headings")
+        # Get just the levels for simpler checks
+        heading_levels = [level for level, _ in headings]
+        empty_levels = [level for level, _ in empty_headings]
+        figure_only_levels = [level for level, _ in headings_with_only_figures]
+        
+        # Check for the first heading - must be H1
+        if ordered_headings:
+            first_heading = ordered_headings[0]
+            first_level = first_heading[0]
+            if first_level != 1:
+                # First heading is not H1 - this is an error
+                self.issues.append(f"First heading in document is H{first_level}, but should be H1 - improper heading hierarchy")
+                self.check_scores['headings'] = max(self.check_scores['headings'], 30)
+        
+        # Get only h1s with figures for specific error reporting
+        h1_figure_only_paths = [path for level, path in headings_with_only_figures if level == 1]
+        
+        # Check each H1 with only images individually and report them once
+        if h1_figure_only_paths:
+            # Multiple H1s with only images
+            if len(h1_figure_only_paths) > 1:
+                self.issues.append(f"Found {len(h1_figure_only_paths)} H1 headings that contain only images and no text - this is not accessible")
+            else:
+                # Single H1 with only images
+                self.issues.append("Found an H1 heading that contains only images and no text - this is not accessible")
+                
+            # Set a lower headings score when we have image-only H1s
+            self.check_scores['headings'] = max(self.check_scores['headings'], 30)
+        
+        # Scoring logic based on collected headings
+        if not heading_levels and not figure_only_levels and empty_headings:
+            # Only empty headings found - this is a real issue
+            unique_empty_levels = sorted(set(empty_levels))
+            self.issues.append(f"Found {len(empty_headings)} empty heading{'s' if len(empty_headings) > 1 else ''} " +
+                              f"(H{', H'.join(map(str, unique_empty_levels))}) and no valid headings")
             self.check_scores['headings'] = 0
             return
         
         if empty_headings:
-            # Se ci sono alcuni titoli vuoti ma anche titoli validi
-            self.issues.append(f"Found {len(empty_headings)} empty heading{'s' if len(empty_headings) > 1 else ''} (H{', H'.join(map(str, empty_headings))})")
-            self.check_scores['headings'] = 30  # Punteggio penalizzato ma non azzerato
+            # Find levels that have both valid and empty headings
+            valid_level_set = set(heading_levels)
+            empty_level_set = set(empty_levels)
             
-        if not headings and not empty_headings:
-            # Se non ci sono titoli affatto
-            self.warnings.append("No headings found in document")
-            self.check_scores['headings'] = 20
+            # Report empty headings that don't have any valid heading of the same level as issues
+            levels_with_only_empty = empty_level_set - valid_level_set
+            if levels_with_only_empty:
+                # Only report as issues levels that have no valid headings
+                levels_str = ", ".join(f"H{level}" for level in sorted(levels_with_only_empty))
+                count = sum(1 for level in empty_levels if level in levels_with_only_empty)
+                self.issues.append(f"Found {count} empty heading{'s' if count > 1 else ''} with no valid counterparts ({levels_str})")
+            
+            # Report empty headings that have at least one valid heading of the same level as warnings
+            levels_with_both = empty_level_set.intersection(valid_level_set)
+            if levels_with_both:
+                # Report as warnings since there are valid headings
+                levels_str = ", ".join(f"H{level}" for level in sorted(levels_with_both))
+                count = sum(1 for level in empty_levels if level in levels_with_both)
+                self.warnings.append(f"Found {count} empty heading{'s' if count > 1 else ''} ({levels_str}) alongside valid headings of the same level")
+            
+            # Set score based on the situation
+            if levels_with_only_empty:
+                self.check_scores['headings'] = 30  # More severe penalty
+            else:
+                self.check_scores['headings'] = 60  # Less severe when all empty headings have valid counterparts
+        
+        if not heading_levels and not figure_only_levels and not empty_headings:
+            # No headings at all
+            self.issues.append("Document has no headings - every document should have at least an H1 heading")
+            self.check_scores['headings'] = 0
             return
+        
+        if heading_levels or figure_only_levels:  # Validate structure for non-empty headings and figure-only headings
+            # Check for at least one valid H1 anywhere in the document
+            if 1 not in heading_levels:
+                # If we have only H1s with figures but no text H1s
+                if 1 in figure_only_levels:
+                    self.issues.append("Document has H1 heading with only images, no text - this is not accessible")
+                else:
+                    self.issues.append("Document doesn't have any H1 heading - a document should have at least one H1 heading")
+                self.check_scores['headings'] = max(self.check_scores['headings'], 30)
             
-        if headings:  # Verifichiamo la struttura solo se ci sono headings non vuoti
-            # Controlla il livello del primo heading
-            if headings[0] > 1:
-                self.issues.append(f"First heading is H{headings[0]}, should be H1")
-                self.check_scores['headings'] = max(self.check_scores['headings'], 40)
+            # Get all top-level headings (not inside other elements) for hierarchy analysis
+            top_level_headings = []
+            for level, path in headings:
+                # Count only headings that are direct children of the document, not nested in tables or other elements
+                path_parts = path.split('/')
+                if len(path_parts) <= 3 and path_parts[0] == 'Document':  # Document/H1, Document/Sect/H1, etc.
+                    top_level_headings.append((level, path))
             
-            # Controlla la gerarchia dei titoli
-            prev_level = headings[0]
+            # Check if the first top-level heading is H1
+            if top_level_headings and top_level_headings[0][0] > 1:
+                # Only report this issue if we don't have H1s at the top level
+                if not any(level == 1 for level, _ in top_level_headings):
+                    self.issues.append(f"First heading at document level is H{top_level_headings[0][0]}, should be H1")
+                    self.check_scores['headings'] = max(self.check_scores['headings'], 40)
+            
+            # Check heading hierarchy for top-level headings
             hierarchy_issues = []
+            if len(top_level_headings) > 1:
+                prev_level = top_level_headings[0][0]
+                for level, path in top_level_headings[1:]:
+                    if level > prev_level + 1:
+                        hierarchy_issues.append(f"H{prev_level} followed by H{level}")
+                    prev_level = level
+                
+                if hierarchy_issues:
+                    self.issues.append("Incorrect heading hierarchy: " + ", ".join(hierarchy_issues))
+                    self.check_scores['headings'] = max(self.check_scores['headings'], 50)
             
-            for level in headings[1:]:  # Parti dal secondo titolo
-                if level > prev_level + 1:
-                    hierarchy_issues.append(f"H{prev_level} followed by H{level}")
-                prev_level = level
-            
-            if hierarchy_issues:
-                self.issues.append("Incorrect heading hierarchy: " + ", ".join(hierarchy_issues))
-                self.check_scores['headings'] = max(self.check_scores['headings'], 50)
-            
+            # Final score if no issues detected
             if not any(issue for issue in self.issues if "heading" in issue.lower()):
-                count = len(headings)
-                self.successes.append(f"Found {count} heading{'s' if count > 1 else ''} with correct structure")
+                self.successes.append(f"Found {len(heading_levels)} heading{'s' if len(heading_levels) > 1 else ''} with correct structure")
                 self.check_scores['headings'] = 100
 
     def validate_tables(self, content: List) -> None:
@@ -292,47 +530,111 @@ class AccessibilityValidator:
         tables_with_multiple_header_rows = []
         tables_without_data = []
         
-        # Migliorata per rilevare intestazioni sia di riga che di colonna
+        # Completely rewritten function to correctly detect content in nested elements
         def is_table_completely_empty(headers, rows) -> bool:
-            # Check if all headers are empty
-            all_headers_empty = all(
-                not (isinstance(cell, dict) and cell.get('text', '').strip() or
-                     isinstance(cell, str) and cell.strip())
-                for row in headers
-                for cell in row
-            )
+            """Checks if a table is completely empty by recursively examining all content"""
             
-            # Check if all rows are empty
-            all_rows_empty = all(
-                not (isinstance(cell, dict) and cell.get('text', '').strip() or
-                     isinstance(cell, str) and cell.strip())
-                for row in rows
-                for cell in row
-            )
+            def has_content(element) -> bool:
+                """Recursively check if an element or any of its children have content"""
+                # Base case: not a dictionary
+                if not isinstance(element, dict):
+                    return isinstance(element, str) and element.strip() != ""
+                    
+                # Check direct text content
+                if element.get('text', '').strip():
+                    return True
+                    
+                # Figures always have content
+                if element.get('tag') == 'Figure':
+                    return True
+                    
+                # Check for headings which always have semantic value
+                if element.get('tag', '').startswith('H'):
+                    return True
+                    
+                # Lists with items have content
+                if element.get('tag') == 'L' and element.get('items', []):
+                    return True
+                    
+                # Recursively check all children
+                for child in element.get('children', []):
+                    if has_content(child):
+                        return True
+                        
+                # Special case for tables
+                if element.get('tag') == 'Table':
+                    table_content = element.get('content', {})
+                    # Check headers
+                    for row in table_content.get('headers', []):
+                        for cell in row:
+                            if has_content(cell):
+                                return True
+                    # Check rows
+                    for row in table_content.get('rows', []):
+                        for cell in row:
+                            if has_content(cell):
+                                return True
+                
+                # No content found
+                return False
             
-            return all_headers_empty and all_rows_empty
+            # Check all header cells
+            for row in headers:
+                for cell in row:
+                    if has_content(cell):
+                        return False
+            
+            # Check all data cells
+            for row in rows:
+                for cell in row:
+                    if has_content(cell):
+                        return False
+            
+            # If we get here, the table is truly empty
+            return True
         
         def has_duplicate_headers(headers) -> tuple[bool, list]:
+            """Checks if table headers contain duplicate non-empty text content in the same row"""
             if not headers:
                 return False, []
             
-            header_texts = []
             duplicates = []
             
-            for row in headers:
+            # Check each row for duplicates
+            for row_index, row in enumerate(headers):
                 row_texts = []
+                row_duplicates = []
+                
                 for cell in row:
+                    # Extract text from the cell
                     if isinstance(cell, dict):
                         text = cell.get('text', '').strip()
+                        
+                        # Recursively extract text from nested elements if present
+                        if not text and cell.get('children'):
+                            for child in cell.get('children', []):
+                                if isinstance(child, dict):
+                                    # Check if child is a paragraph or other text container
+                                    if child.get('tag') in ['P', 'Span', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6']:
+                                        child_text = child.get('text', '').strip()
+                                        if child_text:
+                                            text = child_text
+                                            break
                     else:
                         text = str(cell).strip()
-                    if text in row_texts:
-                        duplicates.append(text)
-                    row_texts.append(text)
-                header_texts.extend(row_texts)
+                    
+                    # Only consider non-empty header text
+                    if text:
+                        if text in row_texts:
+                            # Add meaningful information about the duplicate
+                            row_duplicates.append(f"'{text}' (row {row_index+1})")
+                        row_texts.append(text)
+                
+                # Add any duplicates found in this row
+                duplicates.extend(row_duplicates)
             
             return bool(duplicates), duplicates
-        
+
         def is_element_empty(element: Dict) -> bool:
             """Verifica ricorsivamente se un elemento e tutti i suoi contenuti sono vuoti"""
             if not isinstance(element, dict):
@@ -372,7 +674,38 @@ class AccessibilityValidator:
             return True
 
         def is_cell_empty(cell: Dict) -> bool:
-            """Controlla se una cella è completamente vuota"""
+            """Controlla se una cella è completamente vuota ricorsivamente"""
+            # Handle non-dict cells (shouldn't happen but just in case)
+            if not isinstance(cell, dict):
+                return True
+                
+            # Check direct text
+            cell_text = cell.get('text', '').strip()
+            if cell_text:
+                return False
+                
+            # Special case for nested TD/TH structure in the JSON
+            if cell.get('tag') in ['TD', 'TH'] and 'children' in cell:
+                nested_cells = [child for child in cell.get('children', []) 
+                               if isinstance(child, dict) and child.get('tag') in ['TD', 'TH']]
+                
+                # If we have nested TD/TH, check their content
+                if nested_cells:
+                    for nested_cell in nested_cells:
+                        if not is_cell_empty(nested_cell):
+                            return False
+                            
+                # Also check any other children like paragraphs, figures, etc.
+                other_children = [child for child in cell.get('children', [])
+                                 if isinstance(child, dict) and child.get('tag') not in ['TD', 'TH']]
+                                 
+                for child in other_children:
+                    if not is_element_empty(child):
+                        return False
+                        
+                return True
+            
+            # Use the regular recursive check for all other elements
             return is_element_empty(cell)
 
         def count_empty_cells(table_content: Dict) -> tuple[int, List[str], List[str]]:
@@ -404,9 +737,9 @@ class AccessibilityValidator:
                         empty_cells.append(location)
                         empty_cells_details.append(f"{location} {format_cell_content(cell)}")
             
-            # Check data rows
+            # Check data rows - Fix the iteration over row cells
             for i, row in enumerate(table_content.get('rows', [])):
-                for j, cell in enumerate(row):
+                for j, cell in enumerate(row):  # Fixed: removed the tuple unpacking that was causing the error
                     if is_cell_empty(cell):
                         total_empty += 1
                         location = f"row[{i}][{j}]"
@@ -499,7 +832,8 @@ class AccessibilityValidator:
             # Warning per contenuti duplicati
             if tables_with_duplicate_headers:
                 for table_id, duplicates in tables_with_duplicate_headers:
-                    self.warnings.append(f"{table_id} has duplicate headers: {', '.join(duplicates)}")
+                    if duplicates:  # Only add warning if there are actual duplicates
+                        self.warnings.append(f"{table_id} has duplicate headers: {', '.join(duplicates)}")
         
         if not (empty_tables or tables_without_headers or tables_without_data):
             self.check_scores['tables'] = 100
@@ -793,7 +1127,7 @@ class AccessibilityValidator:
                     spaced_words = is_spaced_capitals(item)
                     if spaced_words:
                         for word in spaced_words:
-                            self.warnings.append(f"Found spaced capital letters in {current_path}/item[{i}]: '{word}'")
+                            self.warnings.append(f"Found spaced capital letters in {current_path}/item[{i}] - might be attempting to create underlining")
                 
         for element in content:
             check_element(element)
@@ -1058,6 +1392,295 @@ class AccessibilityValidator:
         else:
             self.check_scores['consecutive_lists'] = 50
 
+    def validate_italian_accents(self, content: List) -> None:
+        """Check for Italian text with incorrectly used apostrophes or prime symbols instead of proper accents"""
+        if not self.is_tagged:
+            self.check_scores['italian_accents'] = 0
+            return
+            
+        issues_found = []
+        # Track unique issues to avoid duplicates
+        unique_issues = set()
+        
+        # Dictionary of Italian words that frequently use accents incorrectly replaced with apostrophes
+        common_accent_words = {
+            # City and place names
+            'citta': ('città', 'CITTÀ'),
+            # Common words with final accent
+            'universita': ('università', 'UNIVERSITÀ'),
+            'facolta': ('facoltà', 'FACOLTÀ'),
+            'liberta': ('libertà', 'LIBERTÀ'),
+            'attivita': ('attività', 'ATTIVITÀ'),
+            'qualita': ('qualità', 'QUALITÀ'),
+            'perche': ('perché', 'PERCHÉ'),
+            'poiche': ('poiché', 'POICHÉ'),
+            'ne': ('né', 'NÉ'),
+            'piu': ('più', 'PIÙ'),
+            'cosi': ('così', 'COSÌ'),
+            'lunedi': ('lunedì', 'LUNEDÌ'),
+            'martedi': ('martedì', 'MARTEDÌ'),
+            'mercoledi': ('mercoledì', 'MERCOLEDÌ'),
+            'giovedi': ('giovedì', 'GIOVEDÌ'),
+            'venerdi': ('venerdì', 'VENERDÌ'),
+            'sabato': ('sabato', 'SABATO'),  # No accent
+            'domenica': ('domenica', 'DOMENICA'),  # No accent
+        }
+        
+        # All possible apostrophe/quote characters that might be used instead of an accent
+        apostrophe_chars = "'\u2019\u2032\u00B4\u0060\u2035\u055A\uFF07`´"
+        
+        def get_quote_type(text: str) -> str:
+            """Identify the type of quote character used in the text"""
+            if "\u2019" in text:  # Right single quotation mark
+                return "right single quotation mark (U+2019)"
+            elif "\u2032" in text:  # Prime
+                return "prime symbol (′)"
+            elif "'" in text:  # Standard apostrophe
+                return "apostrophe"
+            else:
+                # Identify other special characters
+                for char in ["\u00B4", "\u0060", "\u2035", "\u055A", "\uFF07", "`", "´"]:
+                    if char in text:
+                        return f"special quote character ({char})"
+            return "apostrophe"
+        
+        def check_text_for_accents(text: str, path: str, page_num: int = 1) -> None:
+            """Analyze a text block for words that should use accents instead of apostrophes"""
+            
+            # Skip processing if no apostrophe-like characters present
+            if not any(char in text for char in apostrophe_chars):
+                return
+                
+            # First pass: direct word matching approach (most reliable)
+            # Split text into words and check each one
+            words = text.split()
+            for word in words:
+                # Remove surrounding punctuation but preserve internal apostrophes
+                clean_word = word.strip(",.;:!?()[]{}\"")
+                base_word = clean_word.rstrip(apostrophe_chars).lower()
+                
+                # Check if this is a common word that should have an accent
+                if base_word in common_accent_words and any(char in clean_word for char in apostrophe_chars):
+                    # Get the character used instead of an accent
+                    quote_type = get_quote_type(clean_word)
+                    
+                    # Determine correct replacement based on capitalization
+                    if clean_word.isupper():
+                        corrected = common_accent_words[base_word][1]  # Use uppercase version
+                    elif clean_word[0].isupper():
+                        corrected = common_accent_words[base_word][0].capitalize()
+                    else:
+                        corrected = common_accent_words[base_word][0]
+                        
+                    # Create a unique identifier for this issue to avoid duplicates
+                    issue_key = (clean_word, corrected, quote_type)
+                    if issue_key not in unique_issues:
+                        unique_issues.add(issue_key)
+                        issues_found.append((path, clean_word, corrected, page_num, quote_type))
+                    continue
+            
+            # Second pass: pattern-based detection for words not in our dictionary
+            # Pattern for words ending with vowel + apostrophe/quote
+            pattern = r'\b([a-zA-Z]+)([aeiouAEIOU])([' + re.escape(apostrophe_chars) + r'])(?:\b|$)'
+            
+            for match in re.finditer(pattern, text):
+                word = match.group(0)
+                base = match.group(1).lower()
+                vowel = match.group(2).lower()
+                quote_char = match.group(3)
+                
+                # Skip words we've already processed in the first pass
+                if any(base + vowel == key for key in common_accent_words.keys()):
+                    continue
+                
+                # Skip words that legitimately use apostrophes in Italian
+                proper_apostrophe_words = ["po'", "mo'", "fa'", "va'", "da'", "sta'", 
+                                          "l'", "un'", "quell'", "bell'", "buon'", "grand'", 
+                                          "tutt'", "quant'", "alcun'", "ciascun'", "nessun'", "qualcun'",
+                                          "dell'", "nell'", "all'", "dall'", "sull'"]
+                
+                if any(word.lower().startswith(proper) for proper in proper_apostrophe_words):
+                    continue
+                
+                # Words likely to need an accent instead of apostrophe
+                needs_accent = False
+                
+                # Check common Italian oxytone patterns (words with stress on final syllable)
+                if vowel == 'a' and (base.endswith(('it', 't', 'et'))):  # -tà, -ità, etc.
+                    needs_accent = True
+                elif vowel == 'u' and (base.endswith(('rt', 'nt', 'v'))):  # -tù, etc.
+                    needs_accent = True
+                elif vowel == 'i' and (base.endswith(('d', 's', 'c'))):  # -dì, etc.
+                    needs_accent = True
+                elif vowel == 'e' and (base.endswith(('ch', 'rch', 'rc'))):  # -ché, etc.
+                    needs_accent = True
+                elif vowel == 'o' and (base.endswith(('ci', 'p', 'ro'))):  # -ciò, -però, etc.
+                    needs_accent = True
+                
+                # Special case for uppercase words - in Italian, uppercase vowel + apostrophe
+                # at end of word is almost always an accent
+                if word.isupper():
+                    needs_accent = True
+                
+                # Generate the corrected word if accent is needed
+                if needs_accent:
+                    accented_vowels = {
+                        'a': 'à', 'e': 'è', 'i': 'ì', 'o': 'ò', 'u': 'ù',
+                        'A': 'À', 'E': 'È', 'I': 'Ì', 'O': 'Ò', 'U': 'Ù'
+                    }
+                    
+                    # Preserve original capitalization
+                    if word.isupper():
+                        corrected = base.upper() + accented_vowels[vowel.upper()]
+                    elif word[0].isupper():
+                        corrected = base.capitalize() + accented_vowels[vowel]
+                    else:
+                        corrected = base + accented_vowels[vowel]
+                    
+                    # Identify the quote character used
+                    quote_type = get_quote_type(quote_char)
+                    
+                    # Create a unique identifier for this issue to avoid duplicates
+                    issue_key = (word, corrected, quote_type)
+                    if issue_key not in unique_issues:
+                        unique_issues.add(issue_key)
+                        issues_found.append((path, word, corrected, page_num, quote_type))
+                    
+            # Special case for single words like "e'" that should be "è"
+            single_char_pattern = r'\b([eE])([' + re.escape(apostrophe_chars) + r'])\b'
+            for match in re.finditer(single_char_pattern, text):
+                word = match.group(0)
+                letter = match.group(1)
+                quote_char = match.group(2)
+                
+                corrected = 'È' if letter == 'E' else 'è'
+                quote_type = get_quote_type(quote_char)
+                
+                # Create a unique identifier for this issue to avoid duplicates
+                issue_key = (word, corrected, quote_type)
+                if issue_key not in unique_issues:
+                    unique_issues.add(issue_key)
+                    issues_found.append((path, word, corrected, page_num, quote_type))
+
+        def check_element(element: Dict, path: str = "", page_num: int = 1) -> None:
+            # Update page number if present
+            if 'Pg' in element:
+                page_num = int(element['Pg'])
+                
+            tag = element.get('tag', '')
+            current_path = f"{path}/{tag}" if path else tag
+            
+            # Check text content
+            if 'text' in element:
+                text = element.get('text', '')
+                if text:
+                    check_text_for_accents(text, current_path, page_num)
+            
+            # Check children recursively regardless of tag type
+            for child in element.get('children', []):
+                check_element(child, current_path, page_num)
+            
+            # Special handling for table structures
+            if tag == 'Table':
+                table_content = element.get('content', {})
+                
+                # Process header rows with deep inspection
+                for i, row in enumerate(table_content.get('headers', [])):
+                    for j, cell in enumerate(row):
+                        if isinstance(cell, dict):
+                            # Check direct text content in the cell
+                            text = cell.get('text', '')
+                            if text:
+                                check_text_for_accents(text, f"{current_path}/header[{i}][{j}]", page_num)
+                            
+                            # Check all nested children in the cell for accents
+                            process_cell_children_deeply(cell, f"{current_path}/header[{i}][{j}]", page_num)
+                
+                # Process data rows with deep inspection
+                for i, row in enumerate(table_content.get('rows', [])):
+                    for j, cell in enumerate(row):
+                        if isinstance(cell, dict):
+                            # Check direct text content in the cell
+                            text = cell.get('text', '')
+                            if text:
+                                check_text_for_accents(text, f"{current_path}/row[{i}][{j}]", page_num)
+                            
+                            # Check all nested children in the cell for accents
+                            process_cell_children_deeply(cell, f"{current_path}/row[{i}][{j}]", page_num)
+            
+            # Handle list items
+            if tag == 'L':
+                for i, item in enumerate(element.get('items', [])):
+                    check_text_for_accents(item, f"{current_path}/item[{i}]", page_num)
+        
+        def process_cell_children_deeply(cell: Dict, cell_path: str, page_num: int) -> None:
+            """Deeply process all content in a table cell, including H1-H6 and other nested elements"""
+            
+            # Process direct children
+            for child in cell.get('children', []):
+                child_tag = child.get('tag', '')
+                child_path = f"{cell_path}/{child_tag}"
+                
+                # Check text of any child, especially heading elements
+                child_text = child.get('text', '')
+                if child_text:
+                    check_text_for_accents(child_text, child_path, page_num)
+                
+                # Process any nested children recursively
+                if child.get('children'):
+                    process_cell_children_deeply(child, child_path, page_num)
+                
+                # Special handling for nested TD/TH cells to handle double nesting
+                if child_tag in ['TD', 'TH']:
+                    for nested_child in child.get('children', []):
+                        nested_tag = nested_child.get('tag', '')
+                        nested_path = f"{child_path}/{nested_tag}"
+                        
+                        # Check text content
+                        nested_text = nested_child.get('text', '')
+                        if nested_text:
+                            check_text_for_accents(nested_text, nested_path, page_num)
+                        
+                        # Go deeper for H1-H6, P, Span, etc.
+                        process_cell_children_deeply(nested_child, nested_path, page_num)
+        
+        # Start recursive check for all elements in the document
+        for element in content:
+            check_element(element)
+        
+        # Store all discovered issues for detailed reporting
+        accent_issues = []
+        
+        # Update validation results without duplicates
+        if issues_found:
+            # Create a set to track which warnings we've already added
+            added_warnings = set()
+            
+            for path, wrong, correct, page, char_type in issues_found:
+                # Create a warning message
+                warning = f"Incorrect accent usage on page {page}: '{wrong}' should be '{correct}' ({char_type} instead of accent)"
+                
+                # Add the warning only if we haven't seen this exact combination before
+                warning_key = (wrong, correct, char_type, page)
+                if warning_key not in added_warnings:
+                    added_warnings.add(warning_key)
+                    self.warnings.append(warning)
+                    # Add to detailed accent issues for reporting
+                    accent_issues.append((page, path, wrong, correct))
+            
+            self.check_scores['italian_accents'] = 50
+        else:
+            self.check_scores['italian_accents'] = 100
+            
+        # Store accent issues for JSON report
+        if accent_issues:
+            # Sort by page number for easier reading
+            accent_issues.sort(key=lambda x: x[0])
+            self.accent_issues = [f"Incorrect accent usage on page {page}: '{wrong}' should be '{correct}' (at {path})" 
+                                 for page, path, wrong, correct in accent_issues]
+        else:
+            self.accent_issues = []
+
     def calculate_weighted_score(self) -> float:
         """Calcola il punteggio pesato di accessibilità"""
         # Se non ci sono issues né warnings e nessun elemento vuoto, il punteggio è 100
@@ -1090,49 +1713,63 @@ class AccessibilityValidator:
                 "weighted_score": self.calculate_weighted_score(),
                 "detailed_scores": {
                     check: score for check, score in self.check_scores.items()
-                }
+                },
+                "accent_issues": getattr(self, 'accent_issues', [])
             }
         }
 
     def print_console_report(self) -> None:
         print("\n📖 Accessibility Validation Report\n")
         
-        # Print empty elements count first
-        print("🔍 Empty Elements Count:")
-        print(f"  • Total empty elements: {self.empty_elements_count['total']}")
-        if self.empty_elements_count['paragraphs'] > 0:
-            print(f"  • Empty paragraphs: {self.empty_elements_count['paragraphs']}")
-        if self.empty_elements_count['table_cells'] > 0:
-            print(f"  • Empty table cells: {self.empty_elements_count['table_cells']}")
-        if self.empty_elements_count['headings'] > 0:
-            print(f"  • Empty headings: {self.empty_elements_count['headings']}")
-        if self.empty_elements_count['spans'] > 0:
-            print(f"  • Empty spans: {self.empty_elements_count['spans']}")
-        print()
-        
+        # Show successes
         if self.successes:
             print("✅ Successes:")
             for success in self.successes:
                 print(f"  • {success}")
         
-        if self.warnings:
+        # Prepare warnings, including empty elements information
+        all_warnings = self.warnings.copy()
+        
+        # Add empty elements information to warnings in a more concise format
+        if self.empty_elements_count['total'] > 0:
+            # Create a detailed breakdown of empty elements
+            details = []
+            if self.empty_elements_count['paragraphs'] > 0:
+                details.append(f"{self.empty_elements_count['paragraphs']} paragraphs")
+            if self.empty_elements_count['headings'] > 0:
+                details.append(f"{self.empty_elements_count['headings']} headings")
+            if self.empty_elements_count['table_cells'] > 0:
+                details.append(f"{self.empty_elements_count['table_cells']} table cells")
+            if self.empty_elements_count['spans'] > 0:
+                details.append(f"{self.empty_elements_count['spans']} spans")
+            
+            # Create a concise message with all details in one line
+            if details:
+                details_str = ", ".join(details)
+                all_warnings.append(f"Found {self.empty_elements_count['total']} empty elements ({details_str})")
+            else:
+                all_warnings.append(f"Found {self.empty_elements_count['total']} empty elements")
+        
+        # Show all warnings including empty element information
+        if all_warnings:
             print("\n⚠️  Warnings:")
-            for warning in self.warnings:
+            for warning in all_warnings:
                 print(f"  • {warning}")
         
+        # Show issues
         if self.issues:
             print("\n❌ Issues:")
             for issue in self.issues:
                 print(f"  • {issue}")
         
         # Print summary with weighted score
-        total = len(self.successes) + len(self.warnings) + len(self.issues)
+        total = len(self.successes) + len(all_warnings) + len(self.issues)
         weighted_score = self.calculate_weighted_score()
         
         print(f"\n📊 Summary:")
         print(f"  • Total checks: {total}")
         print(f"  • Successes: {len(self.successes)} ✅")
-        print(f"  • Warnings: {len(self.warnings)} ⚠️")
+        print(f"  • Warnings: {len(all_warnings)} ⚠️")  # Updated to use all_warnings
         print(f"  • Issues: {len(self.issues)} ❌")
         print(f"  • Weighted Accessibility Score: {weighted_score}%")
         

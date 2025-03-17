@@ -3,9 +3,9 @@ avalpdf - A command-line tool for validating PDF accessibility, analyzing docume
 """
 
 from avalpdf.cli import main
+from avalpdf.version import __version__
 
-__version__ = "0.1.4"
 __author__ = "Dennis Angemi"
 __author_email__ = "dennisangemi@gmail.com"
 
-__all__ = ['main']
+__all__ = ['main', '__version__']
