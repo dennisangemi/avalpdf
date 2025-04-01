@@ -950,57 +950,56 @@ class AccessibilityValidator:
             self.check_scores['lists'] = 0
             return
             
-        def extract_leading_number(text: str) -> tuple[bool, int]:
-            """Extract number from text even after bullet points"""
-            import re
-            # Prima rimuovi eventuali bullet points (•, -, *)
-            text = re.sub(r'^[•\-*]\s*', '', text.strip())
-            # Poi cerca il numero
-            match = re.match(r'^(\d+)[.). ]', text)
-            if match:
-                return True, int(match.group(1))
-            return False, 0
+        # Code commented out - check for numbered items in unordered lists temporarily disabled
+        #def extract_leading_number(text: str) -> tuple[bool, int]:
+        #    """Extract number from text even after bullet points"""
+        #    import re
+        #    # Prima rimuovi eventuali bullet points (•, -, *)
+        #    text = re.sub(r'^[•\-*]\s*', '', text.strip())
+        #    # Poi cerca il numero
+        #    match = re.match(r'^(\d+)[.). ]', text)
+        #    if match:
+        #        return True, int(match.group(1))
+        #    return False, 0
+        #
+        #def check_list_items(element: Dict, path: str = "") -> None:
+        #    tag = element.get('tag', '')
+        #    current_path = f"{path}/{tag}" if path else tag
+        #    
+        #    if tag == 'L' and not element.get('ordered', False):  # Solo liste non ordinate
+        #        items = element.get('items', [])
+        #        if items:
+        #            current_sequence = []
+        #            
+        #            for item in items:
+        #                is_numbered, number = extract_leading_number(item)
+        #                if is_numbered:
+        #                    if not current_sequence or number == current_sequence[-1][1] + 1:
+        #                        current_sequence.append((item, number))
+        #                    else:
+        #                        if len(current_sequence) >= 2:
+        #                            numbers = [str(item[1]) for item in current_sequence]
+        #                            self.warnings.append(
+        #                                f"Found consecutive items numbered {', '.join(numbers)} in unordered list at: {current_path}"
+        #                            )
+        #                        current_sequence = [(item, number)] if number == 1 else []
+        #            
+        #            # Check last sequence
+        #            if len(current_sequence) >= 2:
+        #                numbers = [str(item[1]) for item in current_sequence]
+        #                self.warnings.append(
+        #                    f"Found consecutive items numbered {', '.join(numbers)} in unordered list at: {current_path}"
+        #                )
+        #    
+        #    # Check children recursively
+        #    for child in element.get('children', []):
+        #        check_list_items(child, current_path)
+        #
+        #for element in content:
+        #    check_list_items(element)
         
-        def check_list_items(element: Dict, path: str = "") -> None:
-            tag = element.get('tag', '')
-            current_path = f"{path}/{tag}" if path else tag
-            
-            if tag == 'L' and not element.get('ordered', False):  # Solo liste non ordinate
-                items = element.get('items', [])
-                if items:
-                    current_sequence = []
-                    
-                    for item in items:
-                        is_numbered, number = extract_leading_number(item)
-                        if is_numbered:
-                            if not current_sequence or number == current_sequence[-1][1] + 1:
-                                current_sequence.append((item, number))
-                            else:
-                                if len(current_sequence) >= 2:
-                                    numbers = [str(item[1]) for item in current_sequence]
-                                    self.warnings.append(
-                                        f"Found consecutive items numbered {', '.join(numbers)} in unordered list at: {current_path}"
-                                    )
-                                current_sequence = [(item, number)] if number == 1 else []
-                    
-                    # Check last sequence
-                    if len(current_sequence) >= 2:
-                        numbers = [str(item[1]) for item in current_sequence]
-                        self.warnings.append(
-                            f"Found consecutive items numbered {', '.join(numbers)} in unordered list at: {current_path}"
-                        )
-            
-            # Check children recursively
-            for child in element.get('children', []):
-                check_list_items(child, current_path)
-        
-        for element in content:
-            check_list_items(element)
-        
-        if not any(self.warnings):
-            self.check_scores['lists'] = 100
-        else:
-            self.check_scores['lists'] = 50
+        # Since this check is disabled, set the score to pass
+        self.check_scores['lists'] = 100
 
     def validate_excessive_underscores(self, content: List) -> None:
         """Check recursively for excessive consecutive underscores that might be used for underlining"""
