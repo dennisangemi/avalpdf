@@ -246,7 +246,7 @@ def process_table_cell(cell):
     cell_result = {
         "tag": cell_type,
         "text": "",  # Will be populated if there's direct text content
-        "children": []  # Will be populated with nested elements
+        "children": []  # Will be populated with nested elements.
     }
     
     # Process the cell's content
