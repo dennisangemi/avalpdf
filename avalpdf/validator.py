@@ -164,19 +164,36 @@ class AccessibilityValidator:
         """
         import re
         
-        # Verifica estensioni di file comuni
-        file_ext_pattern = r'\.(png|jpe?g|gif|bmp|tiff?|pdf|docx?|xlsx?|pptx?)$'
+        # Check for explicit file extension patterns - more specific than before
+        # Look for patterns that are clearly filenames, with proper word boundaries
+        file_ext_pattern = r'\b[\w-]+\.(png|jpe?g|gif|bmp|tiff?|pdf|docx?|xlsx?|pptx?)(?:\b|$)'
         if re.search(file_ext_pattern, alt_text, re.IGNORECASE):
             return True, "contains file extension"
-
-        # Verifica nomi file che contengono trattini, underscore o numeri
-        complex_name_pattern = r'[-_][a-zA-Z0-9]+[-_0-9]*\.'
-        if re.search(complex_name_pattern, alt_text):
-            return True, "contains complex filename"
             
-        # Verifica se contiene "File:" o "Image:" all'inizio
+        # Always check for image/file prefix markers
         if alt_text.startswith(("File:", "Image:")):
             return True, "starts with 'File:' or 'Image:'"
+            
+        # Check for typical file path patterns like directory separators
+        if re.search(r'(?:\\|\/)[^\\\/]+\.[a-zA-Z0-9]{2,4}', alt_text):
+            return True, "contains file path"
+            
+        # Check for typical camera filename patterns
+        camera_patterns = [
+            r'\bIMG_\d{3,5}\b',  # IMG_12345
+            r'\bDSC_?\d{3,5}\b', # DSC_12345
+            r'\bPICT\d{3,5}\b'   # PICT12345
+        ]
+        for pattern in camera_patterns:
+            if re.search(pattern, alt_text, re.IGNORECASE):
+                return True, "contains camera filename pattern"
+        
+        # Check for complex filename patterns with more specific criteria
+        # This pattern looks for structures like: name-01.ext or name_01.something
+        # that are very likely to be filenames and unlikely in natural text
+        complex_name_pattern = r'\b[\w-]+[-_][\d]+\.\w+'
+        if re.search(complex_name_pattern, alt_text):
+            return True, "contains complex filename"
 
         return False, ""
 

@@ -256,6 +256,21 @@ def process_table_cell(cell):
             
         tag = element.get('S', '')
         
+        # Special handling for Figure elements
+        if tag == 'Figure':
+            # Extract alt text directly
+            alt_text = element.get('Alt', '')
+            fig_element = {
+                "tag": "Figure",
+                "text": alt_text if alt_text else ""
+            }
+            
+            # Add figure to parent's children
+            if 'children' not in parent_element:
+                parent_element['children'] = []
+            parent_element['children'].append(fig_element)
+            return
+        
         # If it's a recognized structural tag, create a proper element
         if tag:
             elem_dict = {"tag": tag}
