@@ -1709,6 +1709,23 @@ class AccessibilityValidator:
 
     def calculate_weighted_score(self) -> float:
         """Calcola il punteggio pesato di accessibilità"""
+        # Se il PDF non è taggato, il punteggio deve essere quasi zero
+        # Un documento non taggato non è accessibile indipendentemente da altri aspetti
+        # Tuttavia, diamo un piccolo credito se almeno titolo e/o lingua sono presenti
+        if not self.is_tagged:
+            bonus_score = 0.0
+            
+            # Piccolo bonus se il titolo è presente (max 3%)
+            if self.check_scores.get('title', 0) == 100:
+                bonus_score = 3.0
+            
+            # Piccolo bonus se la lingua è specificata (max 2%)
+            if self.check_scores.get('language', 0) == 100:
+                bonus_score += 2.0
+            
+            # Lo score totale non deve mai superare il 10% per PDF non taggati
+            return min(bonus_score, 10.0)
+        
         # Se non ci sono issues né warnings e nessun elemento vuoto, il punteggio è 100
         if not self.issues and not self.warnings and not any(value > 0 for value in self.empty_elements_count.values()):
             return 100.00

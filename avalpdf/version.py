@@ -2,4 +2,4 @@
 Version information for avalpdf.
 """
 
-__version__ = "0.1.9"
+__version__ = "0.1.10"
