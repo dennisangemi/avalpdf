@@ -3,11 +3,12 @@ import re
 from avalpdf.formatter import is_element_empty
 
 class AccessibilityValidator:
-    def __init__(self):
+    def __init__(self, expected_lang=None):
         self.issues = []
         self.warnings = []
         self.successes = []
         self.is_tagged = False
+        self.expected_lang = expected_lang
         
         self.check_weights = {
             'tagging': 35,          # Aumentato perché fondamentale
@@ -56,12 +57,21 @@ class AccessibilityValidator:
             self.check_scores['title'] = 100
             
         # Check language
-        lang = metadata.get('lang', '').lower()
-        if not lang.startswith('it'):
-            self.issues.append(f"Document language is not Italian (found: {lang})")
+        lang = metadata.get('lang', '').strip()
+        if not lang:
+            self.issues.append("Document metadata is missing language property")
             self.check_scores['language'] = 0
+        elif self.expected_lang:
+            # Se è specificata una lingua attesa, verifichiamo che corrisponda
+            if not lang.lower().startswith(self.expected_lang.lower()):
+                self.issues.append(f"Document language is not {self.expected_lang} (found: {lang})")
+                self.check_scores['language'] = 0
+            else:
+                self.successes.append(f"Document language is {self.expected_lang}")
+                self.check_scores['language'] = 100
         else:
-            self.successes.append("Document language is Italian")
+            # Altrimenti, è sufficiente che sia presente e valorizzata
+            self.successes.append(f"Document language is set ({lang})")
             self.check_scores['language'] = 100
 
     def validate_empty_elements(self, content: List) -> None:

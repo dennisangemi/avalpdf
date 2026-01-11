@@ -187,7 +187,7 @@ def analyze_pdf(pdf_path: str, options: dict) -> Dict:
                 print("-" * 40)
 
         # Run validation
-        validator = AccessibilityValidator()
+        validator = AccessibilityValidator(expected_lang=options.get('expected_lang'))
         validator.validate_metadata(simplified_json.get('metadata', {}))
         validator.validate_empty_elements(simplified_json.get('content', []))
         validator.validate_figures(simplified_json.get('content', []))
@@ -506,6 +506,7 @@ Examples:
         parser.add_argument('--rich', action='store_true', help='Use Rich library for enhanced document structure display')
         parser.add_argument('--tree', action='store_true', help='Use tree view instead of panel view with Rich')
         parser.add_argument('--workers', '-w', type=int, help='Maximum number of parallel workers (default: auto)')
+        parser.add_argument('--lang', '-l', type=str, help='Expected document language code (e.g., it, en, fr). If not specified, only checks that language is set')
         parser.add_argument('--version', '-v', action='version', version=f'avalpdf {__version__}', help='Show program version and exit')
         
         # Parse arguments
@@ -531,7 +532,8 @@ Examples:
             'show_validation': show_validation,
             'quiet': args.quiet,
             'use_rich': args.rich,
-            'use_tree': args.tree
+            'use_tree': args.tree,
+            'expected_lang': args.lang
         }
         
         # Configurazione speciale per output JSON

@@ -16,7 +16,7 @@ A command-line tool for validating PDF accessibility, analyzing document structu
 
 - Document tagging status
 - Title presence
-- Language declaration (Italian)
+- Language declaration (presence and optional validation against expected language)
 </details>
 
 <details>
@@ -272,9 +272,11 @@ find . -name "*.pdf" | xargs avalpdf
 * `--output-dir`, `-o`: Specify output directory
 * `--show-structure`: Display document structure
 * `--show-validation`: Display validation results
+* `--lang`, `-l`: Expected document language code (e.g., it, en, fr). If not specified, only checks that language is set
 * `--quiet`, `-q`: Suppress console output
 * `--rich`: Use enhanced visual formatting for document structure
 * `--tree`: Use tree view instead of panel view with Rich formatting
+* `--workers`, `-w`: Maximum number of parallel workers for batch processing (default: auto)
 * `--version`, `-v`: Display the version number and exit
 
 ## Examples
@@ -311,6 +313,26 @@ avalpdf "invoices/2023_*.pdf" -o validation_results --report
 7. Quiet batch processing:
 ```sh
 avalpdf *.pdf --quiet --batch-report -o reports
+```
+
+8. Check language is set (any language):
+```sh
+avalpdf document.pdf
+```
+
+9. Validate document is in Italian:
+```sh
+avalpdf document.pdf --lang it
+```
+
+10. Validate document is in English:
+```sh
+avalpdf document.pdf -l en
+```
+
+11. Batch processing with language validation:
+```sh
+avalpdf reports/*.pdf --lang en --report
 ```
 
 ## Batch Report Format
