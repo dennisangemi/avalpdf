@@ -7,3 +7,6 @@ c_bk.py
 .test
 __pycache__
 pdfs
+
+# Output di default se si lancia il benchmark senza --out
+benchmark_results/
