@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>PDF · editor tag struttura</title>
+<style>
+  :root{--bg:#0f1115;--panel:#171a21;--line:#262b36;--txt:#e6e9ef;--muted:#9aa3b2;--accent:#5b8cff;--warn:#ffb454}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg);color:var(--txt);display:grid;grid-template-columns:360px 1fr;
+    grid-template-rows:auto 1fr;grid-template-areas:"head head" "side main";height:100vh}
+  header{grid-area:head;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    padding:10px 18px;background:var(--panel);border-bottom:1px solid var(--line)}
+  header h1{font-size:15px;margin:0;font-weight:600;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  header .meta{color:var(--muted);font-size:12px}
+  header .spacer{flex:1}
+  .toggle{display:flex;align-items:center;gap:7px;color:var(--muted);cursor:pointer;user-select:none;font-size:13px}
+  .toggle input{accent-color:var(--accent)}
+  #changed{color:var(--warn);font-size:12px;font-weight:600}
+  button,.btn{background:#222838;color:var(--txt);border:1px solid var(--line);border-radius:7px;
+    padding:7px 12px;font:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  button:hover,.btn:hover{border-color:var(--accent)}
+  button#download{background:var(--accent);color:#fff;border:0;font-weight:600}
+  button#download:hover{filter:brightness(1.1)}
+  button:disabled{opacity:.45;cursor:default}
+  .btn input{display:none}
+
+  aside{grid-area:side;overflow:auto;background:var(--panel);border-right:1px solid var(--line);padding:8px}
+  aside .grp{padding:9px 8px 3px;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+  .item{display:flex;gap:8px;align-items:flex-start;padding:7px 8px;border-radius:7px;border:1px solid transparent}
+  .item:hover,.item.active{background:#1f2430;border-color:var(--line)}
+  .item.edited{border-left:3px solid var(--warn)}
+  .swatch{width:10px;height:10px;border-radius:3px;margin-top:4px;flex:0 0 auto}
+  .item .body{min-width:0;flex:1}
+  .item .t{font-size:11px;color:var(--muted)}
+  .item .t b{color:var(--txt);font-weight:600}
+  .item .c{font-size:12.5px;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .item select{margin-top:5px;width:100%;background:#0f1115;color:var(--txt);border:1px solid var(--line);
+    border-radius:6px;padding:3px 6px;font:inherit;font-size:12px;cursor:pointer}
+  .item select.changed{border-color:var(--warn);color:var(--warn)}
+  .item select:focus{outline:1px solid var(--accent)}
+
+  main{grid-area:main;overflow:auto;padding:24px;display:flex;flex-direction:column;align-items:center;gap:24px}
+  .page{position:relative;box-shadow:0 8px 30px rgba(0,0,0,.5);background:#fff;border-radius:2px}
+  .page canvas{display:block;border-radius:2px}
+  .overlay{position:absolute;inset:0;pointer-events:none}
+  .pglabel{position:absolute;top:-20px;left:0;font-size:11px;color:var(--muted)}
+  .box{position:absolute;border:1.5px solid;border-radius:2px;pointer-events:auto;cursor:pointer;
+    transition:background .12s,box-shadow .12s}
+  .box.edited{border-style:dashed}
+  .box>span{position:absolute;top:-15px;left:-1px;font-size:9.5px;line-height:1;padding:2px 4px;
+    border-radius:3px 3px 3px 0;color:#fff;white-space:nowrap;opacity:0;transition:opacity .12s}
+  .box:hover>span,.box.active>span{opacity:1}
+  .box.active{box-shadow:0 0 0 2px rgba(255,255,255,.25)}
+  body.nolabels .box>span{display:none}
+  #status{color:var(--muted);padding:40px;max-width:600px}
+  #status.drop{border:2px dashed var(--accent);border-radius:14px;color:var(--txt);text-align:center;
+    margin:60px;padding:60px}
+  code{background:#222838;padding:1px 6px;border-radius:4px}
+  /* drag overlay */
+  #drop{position:fixed;inset:0;z-index:50;background:rgba(15,17,21,.85);display:none;
+    align-items:center;justify-content:center;font-size:20px;color:var(--accent);
+    border:3px dashed var(--accent);pointer-events:none}
+  body.dragging #drop{display:flex}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">PDF · editor tag</h1>
+  <span class="meta" id="docmeta"></span>
+  <span class="spacer"></span>
+  <span id="changed"></span>
+  <label class="btn" title="Carica un PDF taggato">📄 Carica PDF<input type="file" id="file" accept="application/pdf,.pdf"></label>
+  <button id="reset" disabled>Annulla</button>
+  <label class="toggle"><input type="checkbox" id="tgLabels" checked> etichette</label>
+  <label class="toggle"><input type="checkbox" id="tgBoxes" checked> box</label>
+  <label class="toggle" title="Marca il PDF come PDF/UA-1 al download"><input type="checkbox" id="tgUA" checked> PDF/UA</label>
+  <button id="download" disabled>Scarica PDF taggato</button>
+</header>
+<aside id="legend"></aside>
+<main id="main"><div id="status">Caricamento…</div></main>
+<div id="drop">Rilascia qui il PDF</div>
+
+<script type="module">
+import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs';
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.mjs';
+
+const SCALE=1.4;
+const TAGS=['H1','H2','H3','H4','H5','H6','P','L','LI','Lbl','LBody','Figure','Caption',
+  'Table','THead','TBody','TR','TH','TD','Link','Note','BlockQuote','Span','Sect','Document'];
+function tagColor(t){
+  if(/^H[1-6]$/.test(t))return'#ff6b6b';
+  if(t==='L')return'#ffb454';
+  if(['LI','Lbl','LBody'].includes(t))return'#ffd479';
+  if(t==='Figure')return'#39d98a';
+  if(t==='Caption')return'#c678dd';
+  if(['Table','THead','TBody','TR','TH','TD'].includes(t))return'#56d4dd';
+  if(['P','Span','Note','BlockQuote','Link','Sect','Document'].includes(t))return'#5b8cff';
+  return'#8a93a6';
+}
+
+const $main=document.getElementById('main'), $legend=document.getElementById('legend');
+const $changed=document.getElementById('changed'), $reset=document.getElementById('reset');
+const $download=document.getElementById('download');
+let edits=new Map(), original=new Map(), itemRefs=new Map();
+
+function refreshChanged(){
+  $changed.textContent=edits.size?`${edits.size} tag modificati`:'';
+  $reset.disabled=edits.size===0;
+}
+function setStatus(html,drop){$main.innerHTML=`<div id="status"${drop?' class="drop"':''}>${html}</div>`;}
+
+async function loadDocument(){
+  edits=new Map();original=new Map();itemRefs=new Map();refreshChanged();
+  $legend.innerHTML='';setStatus('Caricamento…');
+  let data,pdfBuf;
+  try{
+    const sres=await fetch('/structure.json');
+    if(sres.status===404){
+      $download.disabled=true;
+      setStatus('Nessun PDF caricato.<br><br>Trascina qui un <b>PDF taggato</b> oppure usa <b>📄 Carica PDF</b> in alto.',true);
+      return;
+    }
+    data=await sres.json();
+    pdfBuf=await fetch('/document.pdf').then(r=>r.arrayBuffer());
+  }catch(err){setStatus('<b>Errore:</b> '+err.message);return;}
+
+  document.getElementById('title').textContent=data.title||data.file;
+  document.getElementById('docmeta').textContent=
+    [data.author&&'di '+data.author,data.pages+' pagine',data.elements.length+' elementi'].filter(Boolean).join(' · ');
+  $download.disabled=false;
+
+  const byPage={};
+  data.elements.forEach(e=>{if(e.page!=null)(byPage[e.page]=byPage[e.page]||[]).push(e);});
+  const pdf=await pdfjsLib.getDocument({data:pdfBuf}).promise;
+  $main.innerHTML='';
+  const overlays={};
+  for(let p=0;p<pdf.numPages;p++){
+    const page=await pdf.getPage(p+1);
+    const dpr=window.devicePixelRatio||1, vp=page.getViewport({scale:SCALE});
+    const wrap=document.createElement('div');wrap.className='page';
+    wrap.style.width=vp.width+'px';wrap.style.height=vp.height+'px';
+    const lbl=document.createElement('div');lbl.className='pglabel';lbl.textContent='Pagina '+(p+1);wrap.appendChild(lbl);
+    const canvas=document.createElement('canvas');
+    canvas.width=Math.floor(vp.width*dpr);canvas.height=Math.floor(vp.height*dpr);
+    canvas.style.width=vp.width+'px';canvas.style.height=vp.height+'px';
+    const ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);wrap.appendChild(canvas);
+    const ov=document.createElement('div');ov.className='overlay';wrap.appendChild(ov);
+    overlays[p]={vp,ov}; $main.appendChild(wrap);
+    page.render({canvasContext:ctx,viewport:vp});
+  }
+  Object.keys(byPage).sort((a,b)=>a-b).forEach(p=>{
+    const grp=document.createElement('div');grp.className='grp';
+    grp.textContent='Pagina '+(+p+1)+' · '+byPage[p].length+' elementi';$legend.appendChild(grp);
+    const {vp,ov}=overlays[p];
+    byPage[p].forEach(e=>{
+      original.set(e.idx,e.tag);
+      let box=null,boxLabel=null;
+      if(e.bbox){
+        const r=vp.convertToViewportRectangle(e.bbox);
+        const x1=Math.min(r[0],r[2]),y1=Math.min(r[1],r[3]);
+        const w=Math.abs(r[2]-r[0]),h=Math.abs(r[3]-r[1]);
+        box=document.createElement('div');box.className='box';
+        box.style.cssText=`left:${x1}px;top:${y1}px;width:${w}px;height:${h}px`;
+        boxLabel=document.createElement('span');box.appendChild(boxLabel);ov.appendChild(box);
+      }
+      mountItem(e,box,boxLabel);
+    });
+  });
+  refreshChanged();
+}
+
+function mountItem(e,box,boxLabel){
+  const it=document.createElement('div');it.className='item';
+  const sw=document.createElement('span');sw.className='swatch';
+  const body=document.createElement('div');body.className='body';
+  const t=document.createElement('div');t.className='t';
+  const effTxt=e.eff?' <i style="color:var(--muted)">→ '+e.eff+'</i>':'';
+  t.innerHTML='&nbsp;'.repeat(e.depth*2)+'<b>'+e.tag+'</b>'+effTxt+(e.parent?' · in '+e.parent:'');
+  const c=document.createElement('div');c.className='c';c.textContent=e.text||'—';
+  const sel=document.createElement('select');
+  let tags=TAGS.slice();if(!tags.includes(e.tag))tags.unshift(e.tag);
+  tags.forEach(tg=>{const o=document.createElement('option');o.value=o.textContent=tg;sel.appendChild(o);});
+  sel.value=e.tag;
+  const recolor=()=>{
+    const dirty=sel.value!==e.tag;
+    const col=tagColor(dirty?sel.value:(e.eff||sel.value));
+    sw.style.background=col;
+    sel.classList.toggle('changed',dirty);it.classList.toggle('edited',dirty);
+    if(box){
+      box.style.borderColor=col;box.style.background=col+(dirty?'33':'1a');
+      box.classList.toggle('edited',dirty);
+      boxLabel.style.background=col;
+      boxLabel.textContent=(dirty||!e.eff)?sel.value:e.tag+' → '+e.eff;
+    }
+  };
+  sel.onchange=()=>{
+    if(sel.value===e.tag)edits.delete(e.idx);else edits.set(e.idx,sel.value);
+    recolor();refreshChanged();
+  };
+  recolor();
+  body.append(t,c,sel);it.append(sw,body);$legend.appendChild(it);
+  itemRefs.set(e.idx,{item:it,box,select:sel,recolor});
+  if(box)linkHover(box,it);
+}
+function linkHover(box,item){
+  const on=s=>{box.classList.add('active');item.classList.add('active');
+    if(s==='box')box.scrollIntoView({block:'nearest',behavior:'smooth'});
+    if(s==='item')item.scrollIntoView({block:'nearest',behavior:'smooth'});};
+  const off=()=>{box.classList.remove('active');item.classList.remove('active');};
+  item.onmouseenter=()=>on();item.onmouseleave=off;item.onclick=()=>on('box');
+  box.onmouseenter=()=>on('item');box.onmouseleave=off;
+}
+
+// ---- upload ----
+async function uploadFile(file){
+  if(!file)return;
+  if(!/\.pdf$/i.test(file.name)&&file.type!=='application/pdf'){alert('Serve un file PDF.');return;}
+  setStatus('Carico <b>'+file.name+'</b>…');
+  try{
+    const res=await fetch('/upload',{method:'POST',
+      headers:{'Content-Type':'application/pdf','X-Filename':encodeURIComponent(file.name)},
+      body:await file.arrayBuffer()});
+    const info=await res.json();
+    if(!info.ok){setStatus('<b>Impossibile caricare:</b> '+(info.error||'errore')+
+      '<br><br>Trascina un altro PDF o usa <b>📄 Carica PDF</b>.',true);$download.disabled=true;return;}
+    await loadDocument();
+  }catch(err){setStatus('<b>Errore upload:</b> '+err.message,true);}
+}
+document.getElementById('file').onchange=e=>{uploadFile(e.target.files[0]);e.target.value='';};
+['dragenter','dragover'].forEach(ev=>window.addEventListener(ev,e=>{e.preventDefault();document.body.classList.add('dragging');}));
+['dragleave','drop'].forEach(ev=>window.addEventListener(ev,e=>{
+  e.preventDefault();
+  if(ev==='drop'||e.relatedTarget===null)document.body.classList.remove('dragging');
+}));
+window.addEventListener('drop',e=>{if(e.dataTransfer.files[0])uploadFile(e.dataTransfer.files[0]);});
+
+// ---- toggles / reset / download ----
+document.getElementById('tgBoxes').onchange=e=>
+  document.querySelectorAll('.box').forEach(b=>b.style.display=e.target.checked?'':'none');
+document.getElementById('tgLabels').onchange=e=>
+  document.body.classList.toggle('nolabels',!e.target.checked);
+$reset.onclick=()=>{
+  edits.clear();
+  itemRefs.forEach(({select,recolor},idx)=>{select.value=original.get(idx);recolor();});
+  refreshChanged();
+};
+$download.onclick=async ev=>{
+  const btn=ev.currentTarget;btn.disabled=true;const old=btn.textContent;btn.textContent='Genero…';
+  try{
+    const tags={};edits.forEach((v,k)=>tags[k]=v);
+    const pdfua=document.getElementById('tgUA').checked;
+    const res=await fetch('/apply',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({tags,pdfua})});
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    const blob=await res.blob();
+    const cd=res.headers.get('Content-Disposition')||'';
+    const name=(cd.match(/filename="([^"]+)"/)||[])[1]||'document.tagged.pdf';
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
+    URL.revokeObjectURL(a.href);
+    btn.textContent='Scaricato ✓';setTimeout(()=>btn.textContent=old,1500);
+  }catch(e){alert('Errore export: '+e.message);btn.textContent=old;}
+  finally{btn.disabled=false;}
+};
+
+loadDocument();
+</script>
+</body>
+</html>
