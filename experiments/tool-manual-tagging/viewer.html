@@ -25,6 +25,15 @@
   /* ---- header ---- */
   header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:9px 16px;
     background:var(--panel);border-bottom:1px solid var(--line);flex:0 0 auto}
+  /* ---- auto-tag banner ---- */
+  #autotagBanner{display:flex;align-items:center;gap:10px;flex:0 0 auto;padding:8px 16px;
+    font-size:12.5px;color:var(--txt);
+    background:color-mix(in srgb,var(--warn) 16%,var(--panel));
+    border-bottom:1px solid color-mix(in srgb,var(--warn) 45%,var(--line))}
+  #autotagBanner[hidden]{display:none}
+  #autotagBanner .ico{font-size:14px}
+  #autotagBanner .msg{flex:1}
+  #autotagBanner #autotagClose{padding:2px 8px;font-size:12px}
   header h1{font-size:14.5px;margin:0;font-weight:650;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   header .meta{color:var(--muted);font-size:12px;white-space:nowrap}
   header .spacer{flex:1}
@@ -220,7 +229,7 @@
   <button id="meta" class="icon" title="Titolo e lingua del documento (metadati PDF/UA)">⚙</button>
   <button id="help" class="icon" title="Guida / come si usa">?</button>
   <button id="theme" class="icon" title="Tema chiaro/scuro">🌙</button>
-  <label class="btn" title="Carica un PDF taggato">📄 Carica PDF<input type="file" id="file" accept="application/pdf,.pdf"></label>
+  <label class="btn" title="Carica un PDF: se non è taggato, i tag vengono generati automaticamente">📄 Carica PDF<input type="file" id="file" accept="application/pdf,.pdf"></label>
   <span class="zoom" title="Zoom del PDF">
     <button id="zout" aria-label="Riduci zoom">−</button>
     <span id="zlabel" title="Reimposta zoom">100%</span>
@@ -232,6 +241,13 @@
   <button id="reset" disabled>Annulla tutto</button>
   <button id="download" class="primary" disabled>Scarica PDF taggato</button>
 </header>
+
+<div id="autotagBanner" hidden>
+  <span class="ico">✨</span>
+  <span class="msg"><b>PDF non taggato:</b> i tag sono stati <b>generati automaticamente</b> con
+    opendataloader. Sono una <b>proposta</b> — controllali e correggili prima di scaricare.</span>
+  <button id="autotagClose" title="Chiudi">✕</button>
+</div>
 
 <div class="split">
   <div id="docpane" class="pane"><div id="status">Caricamento…</div></div>
@@ -556,13 +572,14 @@ async function loadDocument(){
   try{
     const sres=await fetch('/structure.json');
     if(sres.status===404){$download.disabled=true;
-      setStatus('Nessun PDF caricato.<br><br>Trascina qui un <b>PDF taggato</b> oppure usa <b>📄 Carica PDF</b> in alto.',true);return;}
+      setStatus('Nessun PDF caricato.<br><br>Trascina qui un PDF oppure usa <b>📄 Carica PDF</b> in alto.<br><span class="muted">Se il PDF non è taggato, i tag vengono <b>generati automaticamente</b> (opendataloader) e potrai correggerli.</span>',true);return;}
     data=await sres.json();
     pdfBuf=await fetch('/document.pdf').then(r=>r.arrayBuffer());
   }catch(err){setStatus('<b>Errore:</b> '+err.message);return;}
 
   $('title').textContent=data.title||data.file;
   $('docmeta').textContent=[data.author&&'di '+data.author,data.pages+' pagine',data.elements.length+' elementi'].filter(Boolean).join(' · ');
+  $('autotagBanner').hidden=!data.autotagged;   // shown when tags were auto-generated
   // default language Italian (overridable from ⚙); keep an existing lang only if
   // it's already Italian, otherwise default to it-IT
   $('metaTitle').value=data.title||'';
@@ -999,16 +1016,18 @@ window.addEventListener('keydown',e=>{
 async function uploadFile(file){
   if(!file)return;
   if(!/\.pdf$/i.test(file.name)&&file.type!=='application/pdf'){toast('Serve un file PDF.');return;}
-  setStatus('Carico <b>'+file.name+'</b>…');
+  setStatus('Carico <b>'+file.name+'</b>…<br><span class="muted">Se non è taggato, genero i tag automaticamente: può richiedere qualche secondo.</span>');
   try{
     const res=await fetch('/upload',{method:'POST',
       headers:{'Content-Type':'application/pdf','X-Filename':encodeURIComponent(file.name)},body:await file.arrayBuffer()});
     const info=await res.json();
     if(!info.ok){setStatus('<b>Impossibile caricare:</b> '+(info.error||'errore')+'<br><br>Trascina un altro PDF o usa <b>📄 Carica PDF</b>.',true);$download.disabled=true;return;}
     await loadDocument();
+    if(info.autotagged)toast('✨ PDF non taggato: tag generati automaticamente — controllali e correggili.');
   }catch(err){setStatus('<b>Errore upload:</b> '+err.message,true);}
 }
 $('file').onchange=e=>{uploadFile(e.target.files[0]);e.target.value='';};
+$('autotagClose').onclick=()=>{$('autotagBanner').hidden=true;};
 ['dragenter','dragover'].forEach(ev=>window.addEventListener(ev,e=>{e.preventDefault();document.body.classList.add('dragging');}));
 ['dragleave','drop'].forEach(ev=>window.addEventListener(ev,e=>{e.preventDefault();if(ev==='drop'||e.relatedTarget===null)document.body.classList.remove('dragging');}));
 window.addEventListener('drop',e=>{if(e.dataTransfer.files[0])uploadFile(e.dataTransfer.files[0]);});

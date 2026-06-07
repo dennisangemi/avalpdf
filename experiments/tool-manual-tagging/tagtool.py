@@ -2,7 +2,7 @@
 """
 PDF structure-tree tag editor.
 
-  uv run --with pikepdf python3 tagtool.py [compito.pdf] [--port 8000]
+  uv run --with pikepdf --with opendataloader-pdf python3 tagtool.py [compito.pdf] [--port 8000]
 
 Opens a local web app that:
   - reads the PDF's REAL structure tree (StructTreeRoot) + computes a bounding
@@ -11,10 +11,15 @@ Opens a local web app that:
   - writes the changes back into the structure tree (/S + RoleMap) and serves
     the corrected PDF for download.
 
+If you upload a PDF that is NOT tagged (no StructTreeRoot), it is first
+auto-tagged on the fly with opendataloader-pdf (a temporary tagged PDF is
+generated under the hood and loaded into the editor), so you can review and
+correct the proposed tags instead of starting from scratch.
+
 Nothing here depends on compito.json: tags are keyed on the structure tree's
 own reading-order index, so the edits land on the exact element you picked.
 """
-import sys, json, io, os, re, argparse, threading, subprocess, shutil
+import sys, json, io, os, re, glob, tempfile, argparse, threading, subprocess, shutil
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pikepdf
 
@@ -302,6 +307,7 @@ def build_structure(pdf):
             "title": str(pdf.docinfo.get("/Title", "")) if pdf.docinfo else "",
             "author": str(pdf.docinfo.get("/Author", "")) if pdf.docinfo else "",
             "lang": str(pdf.Root.get("/Lang") or ""),
+            "autotagged": bool(CURRENT.get("autotagged")),
             "elements": result}
 
 # ------------------------------------------------------- learned rules store ---
@@ -343,8 +349,55 @@ def merge_observations(seen, acted):
     save_rules(rules)
     return rules
 
+# ----------------------------------------------------- auto-tagging (untagged) ---
+def autotag_pdf(data):
+    """Auto-tag an UNtagged PDF with opendataloader-pdf and return the tagged
+    bytes (or raise RuntimeError). We write the upload to a temp file, run the
+    layout engine in `tagged-pdf` mode (produces `<stem>_tagged.pdf`), read it
+    back, and sanity-check that it now carries a StructTreeRoot. The user then
+    reviews/corrects these auto-proposed tags like any other tagged PDF."""
+    try:
+        import opendataloader_pdf
+    except Exception as e:
+        raise RuntimeError(
+            "PDF non taggato e auto-tagging non disponibile: manca "
+            "opendataloader-pdf. Avvia con "
+            "`uv run --with pikepdf --with opendataloader-pdf python3 tagtool.py` "
+            f"(serve anche una JVM). Dettaglio: {e}")
+    with tempfile.TemporaryDirectory(prefix="odl_autotag_") as tmp:
+        src = os.path.join(tmp, "input.pdf")
+        with open(src, "wb") as f:
+            f.write(data)
+        try:
+            opendataloader_pdf.convert(input_path=src, output_dir=tmp,
+                                       format="tagged-pdf", image_output="off", quiet=True)
+        except Exception as e:
+            raise RuntimeError(f"auto-tagging fallito (opendataloader-pdf): {e}")
+        out = os.path.join(tmp, "input_tagged.pdf")
+        if not os.path.exists(out):
+            cand = [c for c in glob.glob(os.path.join(tmp, "*.pdf"))
+                    if os.path.abspath(c) != os.path.abspath(src)]
+            if not cand:
+                raise RuntimeError("auto-tagging non ha prodotto alcun PDF taggato")
+            out = cand[0]
+        with open(out, "rb") as f:
+            tagged = f.read()
+    try:
+        p = pikepdf.open(io.BytesIO(tagged))
+        ok = "/StructTreeRoot" in p.Root
+        p.close()
+    except Exception as e:
+        raise RuntimeError(f"il PDF auto-taggato non è valido: {e}")
+    if not ok:
+        raise RuntimeError("auto-tagging non ha generato uno structure tree "
+                           "(il PDF è probabilmente scansionato / senza testo: "
+                           "servirebbe l'OCR).")
+    return tagged
+
 # ------------------------------------------------- current in-memory document ---
-CURRENT = {"bytes": None, "name": None}   # the PDF being edited (replaceable via /upload)
+# the PDF being edited (replaceable via /upload); "autotagged" flags an upload
+# that arrived untagged and was auto-tagged on the fly before loading.
+CURRENT = {"bytes": None, "name": None, "autotagged": False}
 
 def open_current():
     if CURRENT["bytes"] is None:
@@ -352,20 +405,32 @@ def open_current():
     return pikepdf.open(io.BytesIO(CURRENT["bytes"]))
 
 def set_current(data, name):
-    """Validate an uploaded PDF and make it the working document."""
+    """Validate an uploaded PDF and make it the working document. An untagged
+    PDF is auto-tagged first (opendataloader-pdf) so there are tags to review."""
     try:
         pdf = pikepdf.open(io.BytesIO(data))
     except Exception as e:
         return {"ok": False, "error": f"PDF non valido: {e}"}
     tagged = "/StructTreeRoot" in pdf.Root
-    pages = len(pdf.pages)
     pdf.close()
+    autotagged = False
     if not tagged:
-        return {"ok": False, "error": "Il PDF non ha uno structure tree (non è taggato): "
-                                      "non ci sono tag da modificare."}
+        try:
+            data = autotag_pdf(data)
+        except RuntimeError as e:
+            return {"ok": False, "error": str(e)}
+        autotagged = True
+    try:
+        pdf = pikepdf.open(io.BytesIO(data))   # reopen (possibly the tagged copy)
+        pages = len(pdf.pages)
+        pdf.close()
+    except Exception as e:
+        return {"ok": False, "error": f"PDF non valido: {e}"}
     CURRENT["bytes"] = data
     CURRENT["name"] = name or "document.pdf"
-    return {"ok": True, "name": CURRENT["name"], "pages": pages, "tagged": tagged}
+    CURRENT["autotagged"] = autotagged
+    return {"ok": True, "name": CURRENT["name"], "pages": pages,
+            "tagged": True, "autotagged": autotagged}
 
 # ------------------------------------------------------------- apply edits ---
 def mark_pdfua(pdf, lang=None):

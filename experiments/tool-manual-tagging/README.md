@@ -19,12 +19,34 @@ strumento serve a **vedere** la struttura reale, **capirla** (nomi leggibili, ge
 effettivo via `RoleMap`), **correggerla** e produrre un PDF aggiornato — imparando dai pattern
 ricorrenti per velocizzare i documenti successivi.
 
+E se il PDF **non è taggato** affatto? Allora i tag vengono **proposti automaticamente** (vedi
+sotto), così non parti da zero: l'auto-tagging crea una prima struttura e tu la correggi.
+
+---
+
+## PDF non taggati → tag automatici (opendataloader)
+
+Se carichi un PDF **senza** structure tree, lo strumento lo **auto-tagga al volo**: sotto il cofano
+genera un **PDF temporaneo taggato** con [`opendataloader-pdf`](https://github.com/opendataloader-project)
+(motore di layout, modalità `tagged-pdf`) e lo importa al posto dell'originale. Da lì l'esperienza
+è identica a quella di un PDF già taggato: vedi i tag proposti (titoli, paragrafi, tabelle con celle
+`TH`/`TD`, liste, figure…), li **controlli e correggi**, e scarichi il PDF ritaggato.
+
+- Una **banda informativa** (✨) avvisa che i tag sono una **proposta automatica** da rivedere.
+- Il PDF temporaneo è in `tempfile` ed è cancellato subito dopo l'import: in memoria resta solo la
+  versione taggata, su cui lavori normalmente.
+- **PDF scansionati / senza testo**: l'auto-tagging può solo marcare Figure (niente testo da
+  taggare); lo strumento lo segnala con un errore esplicito (servirebbe l'OCR).
+
 ---
 
 ## Requisiti e avvio
 
-- [`uv`](https://docs.astral.sh/uv/) — l'unica dipendenza è `pikepdf`, installata al volo. Niente
-  da installare a mano.
+- [`uv`](https://docs.astral.sh/uv/) — le dipendenze (`pikepdf` e `opendataloader-pdf`) vengono
+  installate al volo da `serve.sh`. Niente da installare a mano.
+- Una **JVM** (Java 21 testato): serve solo per l'**auto-tagging** dei PDF non taggati
+  (`opendataloader-pdf`). Se manca, i PDF già taggati funzionano comunque; quelli non taggati
+  daranno un errore esplicito.
 - Un browser moderno. `PDF.js` è caricato da CDN (serve Internet).
 
 ```bash
@@ -144,7 +166,7 @@ Il backend tiene il PDF **in memoria** (`CURRENT`): non scrive nulla su disco fi
 | `GET`  | `/` | la pagina (`viewer.html`) |
 | `GET`  | `/structure.json` | struttura del PDF corrente (elementi + bbox + tag + flag) |
 | `GET`  | `/document.pdf` | i byte del PDF corrente (per il rendering) |
-| `POST` | `/upload` | carica un nuovo PDF (body = byte, header `X-Filename`) |
+| `POST` | `/upload` | carica un nuovo PDF (body = byte, header `X-Filename`); se non è taggato viene auto-taggato. Risponde `{ok, name, pages, tagged, autotagged}` |
 | `POST` | `/apply` | applica le modifiche e restituisce il PDF ritaggato |
 | `GET`  | `/rules` | regole apprese (JSON) |
 | `POST` | `/rules` | apprende osservazioni `{seen, acted}` |
@@ -208,7 +230,9 @@ Risponde con `application/pdf` e header di conteggio: `X-Retag`, `X-Deleted`, `X
 
 ## Limiti e note
 
-- **Richiede un PDF già taggato** (con `StructTreeRoot`): corregge, non crea la struttura ex-novo.
+- **PDF già taggato**: corregge la struttura esistente. **PDF non taggato**: la struttura viene
+  prima generata automaticamente con `opendataloader-pdf` (serve la JVM) e poi la correggi — la
+  qualità dei tag di partenza dipende dal motore di auto-tagging.
 - **Non garantisce** la piena conformità PDF/UA: valida sempre con [veraPDF](https://verapdf.org/)
   o PAC. Lo strumento risolve i controlli sopra ma il giudizio finale resta la correttezza dei tag.
 - **Racchiudi in Link** usa il testo estratto dell'elemento: se l'estrazione è parziale (alcuni

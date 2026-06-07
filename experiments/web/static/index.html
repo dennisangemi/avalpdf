@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>avalpdf · Validatore di accessibilità PDF</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230066cc'/%3E%3Ctext x='16' y='23' font-family='Arial,sans-serif' font-size='20' font-weight='bold' fill='white' text-anchor='middle'%3EA%3C/text%3E%3C/svg%3E">
+  <meta name="description" content="Carica un PDF e verifica la sua accessibilità (PDF/UA) con il motore avalpdf: punteggio, problemi, warning e anteprima del documento con i problemi evidenziati.">
+
+  <!-- Bootstrap Italia (design system .italia) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-italia@2.12.1/dist/css/bootstrap-italia.min.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <a class="visually-hidden-focusable sr-skip" href="#main">Salta al contenuto principale</a>
+
+  <!-- ===================== HEADER ===================== -->
+  <header class="app-header" role="banner">
+    <div class="container">
+      <div class="app-header__inner">
+        <div class="app-brand">
+          <span class="app-brand__mark" aria-hidden="true">A<span class="dot">.</span></span>
+          <div class="app-brand__text">
+            <span class="app-brand__name">avalpdf</span>
+            <span class="app-brand__tag">Validatore di accessibilità PDF</span>
+          </div>
+        </div>
+        <div class="app-header__meta">
+          <span class="badge-ua" title="PDF Universal Accessibility">PDF/UA</span>
+          <button type="button" id="newAnalysisBtn" class="btn btn-outline-primary btn-sm app-header__new is-hidden">
+            <svg class="icon icon-sm" aria-hidden="true"><use href="svg/sprite.svg#it-refresh"></use></svg>
+            Nuova analisi
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main id="main" role="main">
+
+    <!-- ===================== UPLOAD ===================== -->
+    <section id="uploadView" class="upload-view" aria-labelledby="uploadTitle">
+      <div class="container">
+        <div class="upload-hero">
+          <p class="upload-hero__eyebrow">Motore avalpdf · analisi locale</p>
+          <h1 id="uploadTitle" class="upload-hero__title">Verifica l'accessibilità del tuo PDF</h1>
+          <p class="upload-hero__lead">
+            Carica un documento PDF: avalpdf esegue tutti i controlli di accessibilità
+            (PDF/UA) e ti mostra punteggio, problemi e anteprima del documento con le
+            aree critiche evidenziate. Il file resta sul tuo computer.
+          </p>
+
+          <form id="uploadForm" novalidate>
+            <div class="upload-lang">
+              <label for="langSelect" class="lang-opt__label">Lingua attesa</label>
+              <div class="select-wrapper select-wrapper--inline">
+                <select id="langSelect" aria-label="Lingua attesa del documento">
+                  <option value="">Solo presenza lingua</option>
+                  <option value="it" selected>Italiano (it)</option>
+                  <option value="en">Inglese (en)</option>
+                  <option value="fr">Francese (fr)</option>
+                  <option value="de">Tedesco (de)</option>
+                  <option value="es">Spagnolo (es)</option>
+                </select>
+              </div>
+            </div>
+
+            <div id="dropzone" class="dropzone" tabindex="0" role="button"
+                 aria-describedby="dropzoneHint"
+                 aria-label="Area di caricamento: trascina qui un PDF oppure premi Invio per scegliere un file; l'analisi parte automaticamente">
+              <input type="file" id="fileInput" accept="application/pdf,.pdf" class="dropzone__input" hidden>
+              <div class="dropzone__icon" aria-hidden="true">
+                <svg class="icon"><use href="svg/sprite.svg#it-upload"></use></svg>
+              </div>
+              <p class="dropzone__title">Trascina qui il tuo PDF</p>
+              <p id="dropzoneHint" class="dropzone__hint">oppure <span class="dropzone__link">scegli un file</span> · l'analisi parte automaticamente · max ~50 MB</p>
+              <p id="fileChosen" class="dropzone__file is-hidden" aria-live="polite"></p>
+            </div>
+          </form>
+
+          <ul class="upload-features" aria-label="Cosa controlla avalpdf">
+            <li><span class="dotmark" aria-hidden="true"></span>Tag, titolo e lingua</li>
+            <li><span class="dotmark" aria-hidden="true"></span>Gerarchia dei titoli</li>
+            <li><span class="dotmark" aria-hidden="true"></span>Testo alternativo immagini</li>
+            <li><span class="dotmark" aria-hidden="true"></span>Tabelle ed elenchi</li>
+            <li><span class="dotmark" aria-hidden="true"></span>Link e formattazione</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== LOADING ===================== -->
+    <section id="loadingView" class="loading-view is-hidden" aria-live="assertive" aria-busy="true">
+      <div class="container">
+        <div class="loading-card">
+          <div class="loading-spinner" aria-hidden="true"><span></span><span></span><span></span></div>
+          <h2 class="loading-card__title">Analisi in corso…</h2>
+          <p id="loadingMsg" class="loading-card__msg">Conversione del PDF e controlli di accessibilità.</p>
+          <p class="loading-card__file" id="loadingFile"></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== ERROR ===================== -->
+    <section id="errorView" class="error-view is-hidden" aria-live="assertive">
+      <div class="container">
+        <div class="error-card">
+          <svg class="icon icon-danger" aria-hidden="true"><use href="svg/sprite.svg#it-error"></use></svg>
+          <h2>Non è stato possibile analizzare il file</h2>
+          <p id="errorMsg" class="error-card__msg"></p>
+          <button type="button" class="btn btn-outline-primary" data-action="reset">Riprova</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== RESULTS ===================== -->
+    <section id="resultsView" class="results-view is-hidden" aria-labelledby="resultsTitle">
+      <div class="container-fluid results-grid">
+
+        <!-- LEFT: report -->
+        <div class="report-col" aria-labelledby="resultsTitle">
+          <h2 id="resultsTitle" class="visually-hidden">Risultati dell'analisi di accessibilità</h2>
+
+          <!-- Score card -->
+          <div class="card-pa score-card">
+            <div class="score-card__gauge">
+              <svg viewBox="0 0 120 120" class="gauge" role="img" aria-labelledby="gaugeLabel">
+                <title id="gaugeLabel">Punteggio di accessibilità</title>
+                <circle class="gauge__track" cx="60" cy="60" r="52"></circle>
+                <circle class="gauge__fill" id="gaugeFill" cx="60" cy="60" r="52"></circle>
+              </svg>
+              <div class="score-card__value">
+                <span id="scoreNumber" class="score-card__number">–</span>
+                <span class="score-card__pct">%</span>
+              </div>
+            </div>
+            <div class="score-card__body">
+              <span id="scoreRating" class="score-card__rating">—</span>
+              <p id="scoreFile" class="score-card__file"></p>
+              <div class="score-card__counts">
+                <button type="button" class="count count--issue" data-filter-sev="issue">
+                  <span class="count__num" id="cntIssues">0</span><span class="count__lbl">problemi</span>
+                </button>
+                <button type="button" class="count count--warning" data-filter-sev="warning">
+                  <span class="count__num" id="cntWarnings">0</span><span class="count__lbl">warning</span>
+                </button>
+                <button type="button" class="count count--success" data-filter-sev="success">
+                  <span class="count__num" id="cntSuccesses">0</span><span class="count__lbl">ok</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Metadata -->
+          <div class="card-pa meta-card">
+            <h3 class="card-pa__title">
+              <svg class="icon icon-sm" aria-hidden="true"><use href="svg/sprite.svg#it-file"></use></svg>
+              Informazioni documento
+            </h3>
+            <dl id="metaList" class="meta-list"></dl>
+          </div>
+
+          <!-- Findings -->
+          <div class="card-pa findings-card">
+            <div class="findings-head">
+              <h3 class="card-pa__title mb-0">
+                <svg class="icon icon-sm" aria-hidden="true"><use href="svg/sprite.svg#it-list"></use></svg>
+                Dettaglio controlli
+              </h3>
+              <div class="findings-filters" role="group" aria-label="Filtra i controlli">
+                <button type="button" class="chip chip--filter is-active" data-sev="all">Tutti</button>
+                <button type="button" class="chip chip--filter chip--issue" data-sev="issue">Problemi</button>
+                <button type="button" class="chip chip--filter chip--warning" data-sev="warning">Warning</button>
+                <button type="button" class="chip chip--filter chip--success" data-sev="success">Superati</button>
+              </div>
+            </div>
+            <ul id="findingsList" class="findings-list" aria-live="polite"></ul>
+            <p id="findingsEmpty" class="findings-empty is-hidden">Nessun controllo in questa categoria.</p>
+          </div>
+
+          <!-- Category scores -->
+          <div class="card-pa cat-card">
+            <h3 class="card-pa__title">
+              <svg class="icon icon-sm" aria-hidden="true"><use href="svg/sprite.svg#it-chart-line"></use></svg>
+              Punteggio per categoria
+            </h3>
+            <p class="card-pa__hint">
+              Quanto ogni criterio rispetta i requisiti di accessibilità, da
+              <strong>0%</strong> (non rispettato) a <strong>100%</strong> (pienamente
+              rispettato). Il <strong>peso</strong> indica quanto quel criterio incide
+              sul <strong>punteggio complessivo</strong> mostrato in alto: i criteri di
+              base (tag, titolo, lingua) pesano molto di più dei dettagli di formattazione.
+            </p>
+            <div id="catList" class="cat-list"></div>
+          </div>
+        </div>
+
+        <!-- RIGHT: document viewer -->
+        <div class="viewer-col">
+          <div class="viewer-panel card-pa">
+            <div class="viewer-toolbar">
+              <div class="viewer-toolbar__title">
+                <svg class="icon icon-sm" aria-hidden="true"><use href="svg/sprite.svg#it-fullscreen"></use></svg>
+                <span>Anteprima documento</span>
+                <span id="untaggedBadge" class="badge-untagged is-hidden" title="Documento senza struttura">non taggato</span>
+              </div>
+              <div class="viewer-toolbar__zoom" role="group" aria-label="Zoom">
+                <button type="button" id="zoomOut" class="zoom-btn" aria-label="Riduci zoom">−</button>
+                <span id="zoomLabel" class="zoom-label">100%</span>
+                <button type="button" id="zoomIn" class="zoom-btn" aria-label="Aumenta zoom">+</button>
+              </div>
+            </div>
+
+            <div class="viewer-modes">
+              <div class="mode-toggle" role="group" aria-label="Modalità di colorazione dei tag">
+                <span class="mode-toggle__label">Colora i tag per</span>
+                <div class="seg-group">
+                  <button type="button" class="seg is-active" data-mode="severity" aria-pressed="true">Gravità</button>
+                  <button type="button" class="seg" data-mode="type" aria-pressed="false">Tipologia</button>
+                </div>
+              </div>
+              <div id="viewerLegend" class="viewer-legend" aria-label="Legenda colori"></div>
+            </div>
+
+            <div id="selBar" class="sel-bar is-hidden" role="region" aria-label="Navigazione del tag selezionato">
+              <nav id="selCrumbs" class="sel-crumbs" aria-label="Percorso del tag selezionato"></nav>
+              <div class="sel-nav">
+                <button type="button" id="selParent" class="sel-btn" title="Vai al tag contenitore">↑ Contenitore</button>
+                <button type="button" id="selChild" class="sel-btn" title="Entra nel primo tag contenuto">↓ Contenuto</button>
+                <button type="button" id="selPrev" class="sel-btn" title="Tag precedente allo stesso livello" aria-label="Tag precedente">←</button>
+                <button type="button" id="selNext" class="sel-btn" title="Tag successivo allo stesso livello" aria-label="Tag successivo">→</button>
+                <button type="button" id="selClose" class="sel-btn sel-btn--close" title="Chiudi selezione" aria-label="Chiudi selezione">✕</button>
+              </div>
+            </div>
+
+            <div id="pdfScroll" class="pdf-scroll" tabindex="0" aria-label="Documento PDF con problemi evidenziati">
+              <div id="pdfPages" class="pdf-pages"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer" role="contentinfo">
+    <div class="container">
+      <p>
+        <strong>avalpdf</strong> · validatore di accessibilità PDF ·
+        analisi eseguita localmente sul tuo dispositivo ·
+        design system <a href="https://designers.italia.it/design-system/" target="_blank" rel="noopener">Bootstrap Italia</a>
+      </p>
+    </div>
+  </footer>
+
+  <!-- element tooltip on the PDF -->
+  <div id="boxTip" class="box-tip is-hidden" role="status" aria-live="off"></div>
+
+  <!-- toast -->
+  <div id="toast" class="toast-pa is-hidden" role="status" aria-live="polite"></div>
+
+  <!-- pdf.js -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

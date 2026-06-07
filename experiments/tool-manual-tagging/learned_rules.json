@@ -1,0 +1,357 @@
+{
+ "x|P||Document|Span": {
+  "actions": {
+   "delete": 8
+  },
+  "seen": 8,
+  "texts": {
+   "delete": [
+    "servizio rtd transizione digitale statistica innovazione tecnologica",
+    "guida all'integrazione openid connect (oidc)",
+    "specifiche tecniche standard per fornitori terzi - comune di messina",
+    "la presente guida definisce le modalità standard, i flussi, gli endpoint e i req",
+    "1. modello di onboarding e scambio dati",
+    "l'integrazione richiede una fase preliminare di configurazione bidirezionale. il"
+   ]
+  }
+ },
+ "s|P||Document": {
+  "actions": {
+   "delete": 8
+  },
+  "seen": 8,
+  "texts": {
+   "delete": [
+    "servizio rtd transizione digitale statistica innovazione tecnologica",
+    "guida all'integrazione openid connect (oidc)",
+    "specifiche tecniche standard per fornitori terzi - comune di messina",
+    "la presente guida definisce le modalità standard, i flussi, gli endpoint e i req",
+    "1. modello di onboarding e scambio dati",
+    "l'integrazione richiede una fase preliminare di configurazione bidirezionale. il"
+   ]
+  }
+ },
+ "s|Span||P": {
+  "actions": {
+   "delete": 2,
+   "retag:P": 3,
+   "retag:H1": 1,
+   "retag:H2": 1,
+   "retag:H3": 1,
+   "retag:H4": 1
+  },
+  "seen": 9,
+  "texts": {
+   "retag:P": [
+    "servizio rtd transizione digitale statistica innovazione tecnologica",
+    "la presente guida definisce le modalità standard, i flussi, gli endpoint e i req",
+    "l'integrazione richiede una fase preliminare di configurazione bidirezionale. il"
+   ],
+   "retag:H1": [
+    "guida all'integrazione openid connect (oidc)"
+   ],
+   "retag:H2": [
+    "specifiche tecniche standard per fornitori terzi - comune di messina"
+   ],
+   "retag:H3": [
+    "1. modello di onboarding e scambio dati"
+   ],
+   "retag:H4": [
+    "1.1 informazioni che il fornitore deve fornire a noi:"
+   ]
+  }
+ },
+ "g|Span·vuoto": {
+  "actions": {
+   "delete": 2
+  },
+  "seen": 2,
+  "texts": {}
+ },
+ "c|P||Document|servizio rtd transizione digitale statistica innovazione tecnologica": {
+  "actions": {
+   "delete": 1
+  },
+  "seen": 1,
+  "texts": {
+   "delete": [
+    "servizio rtd transizione digitale statistica innovazione tecnologica"
+   ]
+  }
+ },
+ "t|P|servizio rtd transizione digitale statistica innovazione tecnologica": {
+  "actions": {
+   "delete": 1
+  },
+  "seen": 1,
+  "texts": {
+   "delete": [
+    "servizio rtd transizione digitale statistica innovazione tecnologica"
+   ]
+  }
+ },
+ "c|Span||P|servizio rtd transizione digitale statistica innovazione tecnologica": {
+  "actions": {
+   "retag:P": 1
+  },
+  "seen": 1,
+  "texts": {
+   "retag:P": [
+    "servizio rtd transizione digitale statistica innovazione tecnologica"
+   ]
+  }
+ },
+ "t|Span|servizio rtd transizione digitale statistica innovazione tecnologica": {
+  "actions": {
+   "retag:P": 1
+  },
+  "seen": 1,
+  "texts": {
+   "retag:P": [
+    "servizio rtd transizione digitale statistica innovazione tecnologica"
+   ]
+  }
+ },
+ "c|P||Document|guida all'integrazione openid connect (oidc)": {
+  "actions": {
+   "delete": 1
+  },
+  "seen": 1,
+  "texts": {
+   "delete": [
+    "guida all'integrazione openid connect (oidc)"
+   ]
+  }
+ },
+ "t|P|guida all'integrazione openid connect (oidc)": {
+  "actions": {
+   "delete": 1
+  },
+  "seen": 1,
+  "texts": {
+   "delete": [
+    "guida all'integrazione openid connect (oidc)"
+   ]
+  }
+ },
+ "c|Span||P|guida all'integrazione openid connect (oidc)": {
+  "actions": {
+   "retag:H1": 1
+  },
+  "seen": 1,
+  "texts": {
+   "retag:H1": [
+    "guida all'integrazione openid connect (oidc)"
+   ]
+  }
+ },
+ "t|Span|guida all'integrazione openid connect (oidc)": {
+  "actions": {
+   "retag:H1": 1
+  },
+  "seen": 1,
+  "texts": {
+   "retag:H1": [
+    "guida all'integrazione openid connect (oidc)"
+   ]
+  }
+ },
+ "c|P||Document|specifiche tecniche standard per fornitori terzi - comune di messina": {
+  "actions": {
+   "delete": 1
+  },
+  "seen": 1,
+  "texts": {
+   "delete": [
+    "specifiche tecniche standard per fornitori terzi - comune di messina"
+   ]
+  }
+ },
+ "t|P|specifiche tecniche standard per fornitori terzi - comune di messina": {
+  "actions": {
+   "delete": 1
+  },
+  "seen": 1,
+  "texts": {
+   "delete": [
+    "specifiche tecniche standard per fornitori terzi - comune di messina"
+   ]
+  }
+ },
+ "c|Span||P|specifiche tecniche standard per fornitori terzi - comune di messina": {
+  "actions": {
+   "retag:H2": 1
+  },
+  "seen": 1,
+  "texts": {
+   "retag:H2": [
+    "specifiche tecniche standard per fornitori terzi - comune di messina"
+   ]
+  }
+ },
+ "t|Span|specifiche tecniche standard per fornitori terzi - comune di messina": {
+  "actions": {
+   "retag:H2": 1
+  },
+  "seen": 1,
+  "texts": {
+   "retag:H2": [
+    "specifiche tecniche standard per fornitori terzi - comune di messina"
+   ]
+  }
+ },
+ "c|P||Document|la presente guida definisce le modalità standard, i flussi, gli endpoint e i req": {
+  "actions": {
+   "delete": 1
+  },
+  "seen": 1,
+  "texts": {
+   "delete": [
+    "la presente guida definisce le modalità standard, i flussi, gli endpoint e i req"
+   ]
+  }
+ },
+ "t|P|la presente guida definisce le modalità standard, i flussi, gli endpoint e i req": {
+  "actions": {
+   "delete": 1
+  },
+  "seen": 1,
+  "texts": {
+   "delete": [
+    "la presente guida definisce le modalità standard, i flussi, gli endpoint e i req"
+   ]
+  }
+ },
+ "c|Span||P|la presente guida definisce le modalità standard, i flussi, gli endpoint e i req": {
+  "actions": {
+   "retag:P": 1
+  },
+  "seen": 1,
+  "texts": {
+   "retag:P": [
+    "la presente guida definisce le modalità standard, i flussi, gli endpoint e i req"
+   ]
+  }
+ },
+ "t|Span|la presente guida definisce le modalità standard, i flussi, gli endpoint e i req": {
+  "actions": {
+   "retag:P": 1
+  },
+  "seen": 1,
+  "texts": {
+   "retag:P": [
+    "la presente guida definisce le modalità standard, i flussi, gli endpoint e i req"
+   ]
+  }
+ },
+ "c|P||Document|1. modello di onboarding e scambio dati": {
+  "actions": {
+   "delete": 1
+  },
+  "seen": 1,
+  "texts": {
+   "delete": [
+    "1. modello di onboarding e scambio dati"
+   ]
+  }
+ },
+ "t|P|1. modello di onboarding e scambio dati": {
+  "actions": {
+   "delete": 1
+  },
+  "seen": 1,
+  "texts": {
+   "delete": [
+    "1. modello di onboarding e scambio dati"
+   ]
+  }
+ },
+ "c|Span||P|1. modello di onboarding e scambio dati": {
+  "actions": {
+   "retag:H3": 1
+  },
+  "seen": 1,
+  "texts": {
+   "retag:H3": [
+    "1. modello di onboarding e scambio dati"
+   ]
+  }
+ },
+ "t|Span|1. modello di onboarding e scambio dati": {
+  "actions": {
+   "retag:H3": 1
+  },
+  "seen": 1,
+  "texts": {
+   "retag:H3": [
+    "1. modello di onboarding e scambio dati"
+   ]
+  }
+ },
+ "c|P||Document|l'integrazione richiede una fase preliminare di configurazione bidirezionale. il": {
+  "actions": {
+   "delete": 1
+  },
+  "seen": 1,
+  "texts": {
+   "delete": [
+    "l'integrazione richiede una fase preliminare di configurazione bidirezionale. il"
+   ]
+  }
+ },
+ "t|P|l'integrazione richiede una fase preliminare di configurazione bidirezionale. il": {
+  "actions": {
+   "delete": 1
+  },
+  "seen": 1,
+  "texts": {
+   "delete": [
+    "l'integrazione richiede una fase preliminare di configurazione bidirezionale. il"
+   ]
+  }
+ },
+ "c|Span||P|l'integrazione richiede una fase preliminare di configurazione bidirezionale. il": {
+  "actions": {
+   "retag:P": 1
+  },
+  "seen": 1,
+  "texts": {
+   "retag:P": [
+    "l'integrazione richiede una fase preliminare di configurazione bidirezionale. il"
+   ]
+  }
+ },
+ "t|Span|l'integrazione richiede una fase preliminare di configurazione bidirezionale. il": {
+  "actions": {
+   "retag:P": 1
+  },
+  "seen": 1,
+  "texts": {
+   "retag:P": [
+    "l'integrazione richiede una fase preliminare di configurazione bidirezionale. il"
+   ]
+  }
+ },
+ "c|Span||P|1.1 informazioni che il fornitore deve fornire a noi:": {
+  "actions": {
+   "retag:H4": 1
+  },
+  "seen": 1,
+  "texts": {
+   "retag:H4": [
+    "1.1 informazioni che il fornitore deve fornire a noi:"
+   ]
+  }
+ },
+ "t|Span|1.1 informazioni che il fornitore deve fornire a noi:": {
+  "actions": {
+   "retag:H4": 1
+  },
+  "seen": 1,
+  "texts": {
+   "retag:H4": [
+    "1.1 informazioni che il fornitore deve fornire a noi:"
+   ]
+  }
+ }
+}
